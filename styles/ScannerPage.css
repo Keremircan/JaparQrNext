@@ -39,21 +39,24 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   background-color: #000000;
   z-index: 1;
 }
 
-/* Kütüphanenin kendi video ve UI elemanlarını tam ekrana yay */
 .camera-feed video {
   width: 100% !important;
   height: 100% !important;
-  object-fit: cover !important;
+  object-fit: contain !important;
+  display: block !important;
 }
 
-/* Kütüphanenin buton/metin kalıntılarını gizle */
-#pwa-qr-reader-region__dashboard_section_csr,
-#pwa-qr-reader-region__dashboard_section_swaplink {
-  display: none !important;
+.camera-feed canvas {
+  position: absolute !important;
+  top: -9999px !important;
+  left: -9999px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 .scanner-overlay {

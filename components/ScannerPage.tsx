@@ -211,11 +211,6 @@ export default function ScannerPage() {
 
         {/* Tarama Hedef Çerçevesi */}
         <div className="target-frame">
-          <div className="corner top-left" />
-          <div className="corner top-right" />
-          <div className="corner bottom-left" />
-          <div className="corner bottom-right" />
-
           {loading && (
             <div className="loading-card">
               <Loader2 size={36} color="#00E676" className="spin" />

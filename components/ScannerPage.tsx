@@ -129,20 +129,33 @@ export default function ScannerPage() {
   useEffect(() => {
     const html5QrCode = new Html5Qrcode(QR_REGION_ID);
     scannerRef.current = html5QrCode;
+    
+    // 1080p yüksek çözünürlük zorlaması
+    const cameraConstraints: MediaTrackConstraints = {
+      facingMode: 'environment'
+    };
+
+    // Ekran boyutuna göre dinamik net tarama alanı
+    const scanConfig = {
+      fps: 15,
+      qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+        const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+        const boxSize = Math.floor(minEdge * 0.75);
+        return { width: boxSize, height: boxSize };
+      },
+      aspectRatio: 1.0,
+      disableFlip: true,
+    };
 
     html5QrCode
       .start(
-        { facingMode: 'environment' }, // Arka kamera
-        {
-          fps: 15,
-          qrbox: { width: 280, height: 280 },
-          aspectRatio: 1.0,
-        },
+        cameraConstraints,
+        scanConfig,
         (decodedText) => {
           void handleBarcodeScanned(decodedText);
         },
         () => {
-          // Her kare okunamadığında gelen bildirimleri sessizce geç
+          // Çerçeve okunamadığında sessizce geç
         }
       )
       .catch((err) => {

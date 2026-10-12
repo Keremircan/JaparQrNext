@@ -47,10 +47,13 @@
 .camera-feed video {
   width: 100% !important;
   height: 100% !important;
-  object-fit: contain !important;
+  min-width: 100%;
+  min-height: 100%;
+  object-fit: cover !important;
   display: block !important;
 }
 
+/* Html5Qrcode arka plan tarama canvas'ı */
 .camera-feed canvas {
   position: absolute !important;
   top: -9999px !important;

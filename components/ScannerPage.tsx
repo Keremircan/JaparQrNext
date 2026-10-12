@@ -130,23 +130,30 @@ export default function ScannerPage() {
     const html5QrCode = new Html5Qrcode(QR_REGION_ID);
     scannerRef.current = html5QrCode;
 
+    // Ana 1x kamerayı hedefleyen net yapılandırma
+    const cameraConfig = {
+      facingMode: { ideal: "environment" },
+      width: { min: 1080, ideal: 1920 },
+      height: { min: 720, ideal: 1080 },
+    };
+
+    const scanConfig = {
+      fps: 15,
+      disableFlip: true,
+      // Tarayıcı motorunun okuma alanını tam ekran tutuyoruz
+    };
+
     html5QrCode
       .start(
-        { facingMode: "environment" }, // Arka kamerayı doğrudan kilitler
-        {
-          fps: 10,
-          disableFlip: true,
-        },
+        cameraConfig,
+        scanConfig,
         (decodedText) => {
           console.log("KOD YAKALANDI:", decodedText);
           void handleBarcodeScanned(decodedText);
         },
-        () => {
-          // Boş kareler
-        },
+        () => {},
       )
       .then(() => {
-        // iOS Safari için video akışını yerine oturtma
         const videoElement = document.querySelector<HTMLVideoElement>(
           `#${QR_REGION_ID} video`,
         );
@@ -158,8 +165,18 @@ export default function ScannerPage() {
         }
       })
       .catch((err) => {
-        console.error("Kamera açılamadı:", err);
-        setPermissionDenied(true);
+        console.error("Kamera başlatılamadı:", err);
+        // Fallback: Katı ayar reddedilirse sade environment ile dene
+        html5QrCode
+          .start(
+            { facingMode: "environment" },
+            scanConfig,
+            (decodedText) => {
+              void handleBarcodeScanned(decodedText);
+            },
+            () => {},
+          )
+          .catch(() => setPermissionDenied(true));
       });
 
     return () => {

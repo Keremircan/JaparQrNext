@@ -142,30 +142,33 @@ export default function ScannerPage() {
           throw new Error("Kamera bulunamadı");
         }
 
-        // Varsa arka kamerayı (back/environment/rear) seç, yoksa son kamerayı al
-        const backCamera = cameras.find(
-          (cam) =>
-            cam.label.toLowerCase().includes("back") ||
-            cam.label.toLowerCase().includes("rear") ||
-            cam.label.toLowerCase().includes("environment"),
-        );
-        const selectedCameraId = backCamera
-          ? backCamera.id
-          : cameras[cameras.length - 1].id;
+        // Telephoto, 2x, 3x, zoom veya macro içeren kameraları filtrele
+        const backCameras = cameras.filter((cam) => {
+          const label = cam.label.toLowerCase();
+          return (
+            (label.includes("back") ||
+              label.includes("rear") ||
+              label.includes("environment")) &&
+            !label.includes("telephoto") &&
+            !label.includes("zoom") &&
+            !label.includes("macro")
+          );
+        });
+
+        // 1x ana geniş açı kamera genelde filtrelenen ilk kameradır
+        const selectedCameraId =
+          backCameras.length > 0 ? backCameras[0].id : cameras[0].id;
 
         return html5QrCode.start(
           selectedCameraId,
           {
-            fps: 10, // 15 yerine 10 fps Safari'nin kare kaçırmasını ve ısınmasını önler
+            fps: 10,
             disableFlip: true,
           },
           (decodedText) => {
-            console.log("KOD YAKALANDI:", decodedText);
             void handleBarcodeScanned(decodedText);
           },
-          () => {
-            // Boş kareler
-          },
+          () => {},
         );
       })
       .then(() => {

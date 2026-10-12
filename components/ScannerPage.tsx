@@ -127,30 +127,59 @@ export default function ScannerPage() {
 
   // Kamerayı başlatma ve temizleme
   useEffect(() => {
-    const html5QrCode = new Html5Qrcode(QR_REGION_ID);
+    const html5QrCode = new Html5Qrcode(QR_REGION_ID, {
+      verbose: false,
+      experimentalFeatures: {
+        useBarCodeDetectorIfSupported: false, // iOS Safari'de bu bazen takılır, kapatıp dahili JS motorunu zorluyoruz
+      },
+    });
     scannerRef.current = html5QrCode;
 
-    // Ekran boyutuna göre dinamik net tarama alanı
-    const scanConfig = {
-      fps: 15,
-      disableFlip: true,
-      experimentalFeatures: {
-        useBarCodeDetectorIfSupported: true, // Varsa iOS/Android donanımsal barkod motorunu açar (milisaniyede okur)
-      },
-    };
-    // aspect raito = 1; kaldırıldı.
-    html5QrCode
-      .start(
-        { facingMode: "environment" },
-        scanConfig,
-        (decodedText) => {
-          console.log("KAREKOD BAŞARIYLA OKUNDU:", decodedText);
-          void handleBarcodeScanned(decodedText);
-        },
-        () => {
-          // Boş kareleri sessiz geç
-        },
-      )
+    // 2. iOS Safari için en kararlı kamera seçimi
+    Html5Qrcode.getCameras()
+      .then((cameras) => {
+        if (!cameras || cameras.length === 0) {
+          throw new Error("Kamera bulunamadı");
+        }
+
+        // Varsa arka kamerayı (back/environment/rear) seç, yoksa son kamerayı al
+        const backCamera = cameras.find(
+          (cam) =>
+            cam.label.toLowerCase().includes("back") ||
+            cam.label.toLowerCase().includes("rear") ||
+            cam.label.toLowerCase().includes("environment"),
+        );
+        const selectedCameraId = backCamera
+          ? backCamera.id
+          : cameras[cameras.length - 1].id;
+
+        return html5QrCode.start(
+          selectedCameraId,
+          {
+            fps: 10, // 15 yerine 10 fps Safari'nin kare kaçırmasını ve ısınmasını önler
+            disableFlip: true,
+          },
+          (decodedText) => {
+            console.log("KOD YAKALANDI:", decodedText);
+            void handleBarcodeScanned(decodedText);
+          },
+          () => {
+            // Boş kareler
+          },
+        );
+      })
+      .then(() => {
+        // iOS Safari için video öğesine playsinline zorlaması
+        const videoElement = document.querySelector<HTMLVideoElement>(
+          `#${QR_REGION_ID} video`,
+        );
+        if (videoElement) {
+          videoElement.setAttribute("playsinline", "true");
+          videoElement.setAttribute("webkit-playsinline", "true");
+          videoElement.muted = true;
+          videoElement.play().catch(() => {});
+        }
+      })
       .catch((err) => {
         console.error("Kamera açılamadı:", err);
         setPermissionDenied(true);

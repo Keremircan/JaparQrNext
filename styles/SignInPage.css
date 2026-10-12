@@ -1,12 +1,19 @@
 .signin-root {
+  width: 100%;
+  max-width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
   background-color: #f8fafc;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px;
   box-sizing: border-box;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* iOS Çentik ve Alt Çizgi Koruması */
+  padding-top: calc(24px + env(safe-area-inset-top));
+  padding-right: 16px;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  padding-left: 16px;
 }
 
 .signin-wrapper {

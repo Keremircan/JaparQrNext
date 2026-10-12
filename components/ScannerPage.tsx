@@ -138,7 +138,7 @@ export default function ScannerPage() {
         useBarCodeDetectorIfSupported: true, // Varsa iOS/Android donanımsal barkod motorunu açar (milisaniyede okur)
       },
     };
-
+    // aspect raito = 1; kaldırıldı.
     html5QrCode
       .start(
         { facingMode: "environment" },

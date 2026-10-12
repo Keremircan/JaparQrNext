@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Html5Qrcode } from "html5-qrcode";
+import { Html5Qrcode, Html5QrcodeScanner } from "html5-qrcode";
 import { Loader2, ArrowLeft, CameraOff } from "lucide-react";
 import { useSession } from "../context/useSession";
 import "../styles/ScannerPage.css";
@@ -28,7 +28,7 @@ export default function ScannerPage() {
   });
 
   const isScanningLocked = useRef(false);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  // const scannerRef = useRef<Html5Qrcode | null>(null);
 
   // IN / OUT tespiti
   const scanType: "IN" | "OUT" = employee?.lastType === "IN" ? "OUT" : "IN";
@@ -127,65 +127,40 @@ export default function ScannerPage() {
 
   // Kamerayı başlatma ve temizleme
   useEffect(() => {
-    const html5QrCode = new Html5Qrcode(QR_REGION_ID);
-    scannerRef.current = html5QrCode;
+    // Mobil uyumlu yerleşik tarayıcı motoru
+    const scanner = new Html5QrcodeScanner(
+      QR_REGION_ID,
+      {
+        fps: 10,
+        qrbox: { width: 260, height: 260 },
+        rememberLastUsedCamera: true,
+        showTorchButtonIfSupported: true,
+      },
+      /* verbose= */ false,
+    );
 
-    // Ana 1x kamerayı hedefleyen net yapılandırma
-    const cameraConfig = {
-      facingMode: { ideal: "environment" },
-      width: { min: 1080, ideal: 1920 },
-      height: { min: 720, ideal: 1080 },
-    };
+    scanner.render(
+      // 1. Başarılı okuma
+      (decodedText) => {
+        void handleBarcodeScanned(decodedText);
+      },
+      // 2. Anlık kare okunamama bildirimi (boş kareler)
+      () => {
+        // Sessizce geçilir
+      },
+    );
 
-    const scanConfig = {
-      fps: 15,
-      disableFlip: true,
-      // Tarayıcı motorunun okuma alanını tam ekran tutuyoruz
-    };
-
-    html5QrCode
-      .start(
-        cameraConfig,
-        scanConfig,
-        (decodedText) => {
-          console.log("KOD YAKALANDI:", decodedText);
-          void handleBarcodeScanned(decodedText);
-        },
-        () => {},
-      )
-      .then(() => {
-        const videoElement = document.querySelector<HTMLVideoElement>(
-          `#${QR_REGION_ID} video`,
-        );
-        if (videoElement) {
-          videoElement.setAttribute("playsinline", "true");
-          videoElement.setAttribute("webkit-playsinline", "true");
-          videoElement.muted = true;
-          videoElement.play().catch(() => {});
-        }
-      })
-      .catch((err) => {
-        console.error("Kamera başlatılamadı:", err);
-        // Fallback: Katı ayar reddedilirse sade environment ile dene
-        html5QrCode
-          .start(
-            { facingMode: "environment" },
-            scanConfig,
-            (decodedText) => {
-              void handleBarcodeScanned(decodedText);
-            },
-            () => {},
-          )
-          .catch(() => setPermissionDenied(true));
-      });
+    // Başlatma anında izin reddedilirse veya cihazda kamera bulunamazsa
+    // DOM üzerindeki hata durumunu veya MediaStream iznini yakalamak için:
+    navigator.mediaDevices?.getUserMedia({ video: true }).catch((err) => {
+      console.error("Kamera izni alınamadı:", err);
+      setPermissionDenied(true);
+    });
 
     return () => {
-      if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current
-          .stop()
-          .then(() => scannerRef.current?.clear())
-          .catch((e) => console.error("Kamera durdurulamadı:", e));
-      }
+      scanner
+        .clear()
+        .catch((e) => console.error("Kamera temizleme hatası:", e));
     };
   }, [handleBarcodeScanned]);
 

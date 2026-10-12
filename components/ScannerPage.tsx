@@ -92,7 +92,6 @@ export default function ScannerPage() {
 
         if (response.ok && result.success) {
           triggerVibrate([40, 60, 40]);
-          // Durumu güncelle (IN yapıldıysa OUT'a hazırla, OUT yapıldıysa IN'e hazırla)
           setLastType(scanType);
 
           setResultModal({
@@ -130,19 +129,35 @@ export default function ScannerPage() {
     const html5QrCode = new Html5Qrcode(QR_REGION_ID);
     scannerRef.current = html5QrCode;
 
+    // Yüksek çözünürlük (1080p) ve ana 1x lens zorlaması
+    const cameraConstraints: MediaTrackConstraints = {
+      facingMode: 'environment',
+      width: { ideal: 1920, min: 1280 },
+      height: { ideal: 1080, min: 720 },
+    };
+
+    // Okuyucu ayarları: Ekran genişliğine göre dinamik tarama alanı
+    const scanConfig = {
+      fps: 15,
+      qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+        const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+        // Ekranın %75'ini net tarama alanı yapar
+        const boxSize = Math.floor(minEdge * 0.75);
+        return { width: boxSize, height: boxSize };
+      },
+      aspectRatio: 1.0,
+      disableFlip: true,
+    };
+
     html5QrCode
       .start(
-        { facingMode: 'environment' }, // Arka kamera
-        {
-          fps: 15,
-          qrbox: { width: 280, height: 280 },
-          aspectRatio: 1.0,
-        },
+        cameraConstraints,
+        scanConfig,
         (decodedText) => {
           void handleBarcodeScanned(decodedText);
         },
         () => {
-          // Her kare okunamadığında gelen bildirimleri sessizce geç
+          // Çerçeve okunamadığında sessizce geç
         }
       )
       .catch((err) => {
@@ -209,7 +224,7 @@ export default function ScannerPage() {
           </span>
         </div>
 
-        {/* Tarama Hedef Çerçevesi */}
+        {/* Tarama Hedef Alanı */}
         <div className="target-frame">
           {loading && (
             <div className="loading-card">
@@ -227,7 +242,7 @@ export default function ScannerPage() {
         </div>
       </div>
 
-      {/* Doğrulama Sonuç Modal'ı */}
+      {/* Doğrulama Sonuç Modalı */}
       {resultModal.open && (
         <div className="modal-backdrop">
           <div className="modal-card">

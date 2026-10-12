@@ -134,8 +134,8 @@ export default function ScannerPage() {
       .start(
         { facingMode: 'environment' }, // Arka kamera
         {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
+          fps: 15,
+          qrbox: { width: 280, height: 280 },
           aspectRatio: 1.0,
         },
         (decodedText) => {

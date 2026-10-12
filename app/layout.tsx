@@ -23,6 +23,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: 'cover', // Çentik ve alt çizgi alanını tam ekran yapmak için
 };
 
 export default function RootLayout({
@@ -34,7 +35,9 @@ export default function RootLayout({
     <html lang="tr">
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Japar PDKS" />
       </head>
       <body>
         <Providers>{children}</Providers>

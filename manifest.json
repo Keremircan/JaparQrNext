@@ -2,7 +2,9 @@
   "name": "Japar PDKS",
   "short_name": "Japar PDKS",
   "description": "Personel Devam Takip Sistemi",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#000000",
@@ -28,3 +30,4 @@
     }
   ]
 }
+

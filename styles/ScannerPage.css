@@ -47,7 +47,6 @@
 .camera-feed video {
   width: 100% !important;
   height: 100% !important;
-  /* 'cover' aşırı kırpıp zoom yapar; 'contain' doğal geniş açıyı korur */
   object-fit: contain !important;
   display: block !important;
 }

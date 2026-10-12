@@ -127,52 +127,26 @@ export default function ScannerPage() {
 
   // Kamerayı başlatma ve temizleme
   useEffect(() => {
-    const html5QrCode = new Html5Qrcode(QR_REGION_ID, {
-      verbose: false,
-      experimentalFeatures: {
-        useBarCodeDetectorIfSupported: false, // iOS Safari'de bu bazen takılır, kapatıp dahili JS motorunu zorluyoruz
-      },
-    });
+    const html5QrCode = new Html5Qrcode(QR_REGION_ID);
     scannerRef.current = html5QrCode;
 
-    // 2. iOS Safari için en kararlı kamera seçimi
-    Html5Qrcode.getCameras()
-      .then((cameras) => {
-        if (!cameras || cameras.length === 0) {
-          throw new Error("Kamera bulunamadı");
-        }
-
-        // Telephoto, 2x, 3x, zoom veya macro içeren kameraları filtrele
-        const backCameras = cameras.filter((cam) => {
-          const label = cam.label.toLowerCase();
-          return (
-            (label.includes("back") ||
-              label.includes("rear") ||
-              label.includes("environment")) &&
-            !label.includes("telephoto") &&
-            !label.includes("zoom") &&
-            !label.includes("macro")
-          );
-        });
-
-        // 1x ana geniş açı kamera genelde filtrelenen ilk kameradır
-        const selectedCameraId =
-          backCameras.length > 0 ? backCameras[0].id : cameras[0].id;
-
-        return html5QrCode.start(
-          selectedCameraId,
-          {
-            fps: 10,
-            disableFlip: true,
-          },
-          (decodedText) => {
-            void handleBarcodeScanned(decodedText);
-          },
-          () => {},
-        );
-      })
+    html5QrCode
+      .start(
+        { facingMode: "environment" }, // Arka kamerayı doğrudan kilitler
+        {
+          fps: 10,
+          disableFlip: true,
+        },
+        (decodedText) => {
+          console.log("KOD YAKALANDI:", decodedText);
+          void handleBarcodeScanned(decodedText);
+        },
+        () => {
+          // Boş kareler
+        },
+      )
       .then(() => {
-        // iOS Safari için video öğesine playsinline zorlaması
+        // iOS Safari için video akışını yerine oturtma
         const videoElement = document.querySelector<HTMLVideoElement>(
           `#${QR_REGION_ID} video`,
         );

@@ -31,18 +31,26 @@
 }
 
 .camera-feed {
-  width: 100% !important;
-  height: 100% !important;
+  width: 100%;
+  height: 100%;
   position: absolute;
   top: 0;
   left: 0;
-  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .camera-feed video {
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Html5Qrcode kütüphanesinin tarama tuvalini bozmamak için */
+.camera-feed canvas {
+  display: none !important;
 }
 
 .scanner-overlay {

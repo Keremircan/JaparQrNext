@@ -163,13 +163,14 @@ export default function HomePage() {
     .slice(0, 2)
     .toUpperCase();
 
+
   return (
     <div className="home-container">
       {/* Üst Bar */}
       <header className="top-bar">
         <div>
           <span className="kicker">JAPAR · DEVAM TAKİBİ</span>
-          <h1 className="greeting">Merhaba, {employee?.name[0] ?? 'Çalışan'}</h1>
+          <h1 className="greeting">Merhaba, {employee?.name.trim().split(' ')[0] ?? 'Çalışan'}</h1>
           <p className="date-text">{today}</p>
         </div>
         <div className="top-actions">

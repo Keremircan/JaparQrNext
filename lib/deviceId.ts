@@ -9,6 +9,7 @@ const DB_NAME = 'japar-device';
 const STORE_NAME = 'keys';
 const KEY_ID = 'device-key-v1';
 const LEGACY_STORAGE_KEY = 'device_hardware_id';
+const REQUEST_TIMEOUT_MS = 15_000;
 
 const KEY_ALGORITHM: EcKeyGenParams = { name: 'ECDSA', namedCurve: 'P-256' };
 const SIGN_ALGORITHM: EcdsaParams = { name: 'ECDSA', hash: 'SHA-256' };
@@ -165,15 +166,23 @@ export async function signedPost(
     new TextEncoder().encode(`${path}\n${body}`)
   );
 
-  return fetch(path, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Device-Key': identity.publicKey,
-      'X-Device-Signature': toBase64Url(signature),
-    },
-    body,
-  });
+  // Zayıf Wi-Fi'da istek sonsuza kadar asılı kalmasın
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Device-Key': identity.publicKey,
+        'X-Device-Signature': toBase64Url(signature),
+      },
+      body,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export const DEVICE_UNSUPPORTED_MESSAGE =

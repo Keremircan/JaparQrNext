@@ -1,73 +1,36 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../lib/db';
-import { readSignedRequest } from '../../../lib/deviceBinding';
+import { authenticateRequest, failureResponse } from '../../../lib/deviceBinding';
 import { describeDevice } from '../../../lib/deviceLabel';
-
-const text = (value: unknown): string | null =>
-  typeof value === 'string' && value.trim() ? value.trim() : null;
 
 export async function POST(request: Request) {
   try {
-    const signed = await readSignedRequest(request);
-    if (!signed.ok) {
-      return NextResponse.json(
-        { success: false, code: signed.code, message: signed.message },
-        { status: signed.status }
-      );
-    }
+    const auth = await authenticateRequest(request, 'profile');
+    if (!auth.ok) return failureResponse(auth);
 
-    const { employeeCode } = signed.body;
-    if (typeof employeeCode !== 'string' || !employeeCode) {
-      return NextResponse.json(
-        { success: false, message: 'Sicil no gereklidir.' },
-        { status: 400 }
-      );
-    }
+    const { employee } = auth;
 
-    // Satır JSON olarak alınır: hire_date gibi henüz tabloda olmayan kolonlar
-    // sorguyu bozmaz, kolon eklendiği anda kod değişmeden okunmaya başlar.
-    const result = await pool.query(
-      'SELECT to_jsonb(e) AS data FROM employees e WHERE employee_code = $1',
-      [employeeCode]
+    // hire_date henüz tabloda olmayabilir: JSON üzerinden okunduğu için kolon
+    // yoksa sorgu bozulmaz, eklendiği anda kod değişmeden okunmaya başlar.
+    const extra = await pool.query<{ hire_date: string | null }>(
+      `SELECT to_jsonb(e) ->> 'hire_date' AS hire_date FROM employees e WHERE id = $1`,
+      [employee.id]
     );
-
-    if (result.rows.length === 0) {
-      return NextResponse.json(
-        { success: false, message: 'Personel bulunamadı.' },
-        { status: 404 }
-      );
-    }
-
-    const employee = result.rows[0].data as Record<string, unknown>;
-    const boundKey = text(employee.device_public_key);
-
-    // Profil yalnızca hesaba bağlı cihazdan görüntülenebilir
-    if (boundKey && boundKey !== signed.deviceKey) {
-      return NextResponse.json(
-        {
-          success: false,
-          code: 'DEVICE_MISMATCH',
-          message: 'Yalnızca kayıtlı cihazınızdan işlem yapabilirsiniz.',
-        },
-        { status: 403 }
-      );
-    }
 
     return NextResponse.json({
       success: true,
       profile: {
         employeeCode: employee.employee_code,
         fullName: employee.full_name,
-        department: text(employee.department),
-        job: text(employee.job),
-        shift: text(employee.shift),
-        shiftType: text(employee.shift_type),
-        isActive: employee.is_active !== false,
-        hireDate: text(employee.hire_date),
+        department: employee.department,
+        job: employee.job,
+        shift: employee.shift,
+        shiftType: employee.shift_type,
+        isActive: true,
+        hireDate: extra.rows[0]?.hire_date ?? null,
         device: {
-          bound: Boolean(boundKey),
-          label: boundKey ? describeDevice(text(employee.device_label)) : null,
-          boundAt: text(employee.device_bound_at),
+          label: describeDevice(employee.device_label),
+          boundAt: employee.device_bound_at?.toISOString() ?? null,
         },
       },
     });

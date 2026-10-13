@@ -2,14 +2,22 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useSession } from '../context/useSession';
-import {
-  DEVICE_UNSUPPORTED_MESSAGE,
-  DeviceUnsupportedError,
-  signedPost,
-} from '../lib/deviceId';
-import '../styles/SignInPage.css'; // veya CSS dosyanızın bulunduğu yol
+import { apiPost } from '../lib/api';
+import { vibrate } from '../lib/ui';
+import '../styles/SignInPage.css';
+
+type LoginResponse = {
+  user: {
+    employeeCode: string;
+    fullName: string | null;
+    department: string | null;
+    job: string | null;
+    shift: string | null;
+    shift_type: string | null;
+  };
+};
 
 export default function SignInPage() {
   const { signIn } = useSession();
@@ -17,70 +25,49 @@ export default function SignInPage() {
 
   const [employeeCode, setEmployeeCode] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const triggerVibrate = (pattern: number | number[] = 30) => {
-    if (typeof window !== 'undefined' && 'vibrate' in navigator) {
-      try {
-        navigator.vibrate(pattern);
-      } catch {
-        // Tarayıcı desteklemiyorsa sessizce geç
-      }
-    }
-  };
-
   const handleLogin = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (loading) return;
     setErrorMessage('');
 
     if (!employeeCode.trim() || !password.trim()) {
       setErrorMessage('Sicil numarası ve şifre gereklidir.');
-      triggerVibrate([40, 40]);
+      vibrate([40, 40]);
       return;
     }
 
     setLoading(true);
-    triggerVibrate(25);
+    vibrate(25);
 
-    try {
-      // İstek cihaz anahtarıyla imzalanır; sunucu cihazı personele bağlar/denetler
-      const response = await signedPost('/api/login', {
-        employeeCode: employeeCode.trim(),
-        password: password.trim(),
-      });
+    // İstek cihaz anahtarıyla imzalanır; sunucu cihazı personele bağlar/denetler
+    const result = await apiPost<LoginResponse>('/api/login', {
+      employeeCode: employeeCode.trim(),
+      password: password.trim(),
+    });
+    setLoading(false);
 
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        // UI yumuşatma beklemesi
-        await new Promise((resolve) => setTimeout(resolve, 450));
-
-        signIn({
-          name: data.user.fullName || 'Personel',
-          employeeCode: data.user.employeeCode,
-          department: data.user.department,
-          job: data.user.job,
-          shift: data.user.shift,
-          shift_type: data.user.shift_type,
-        });
-
-        triggerVibrate([40, 60, 40]);
-        router.replace('/');
-      } else {
-        triggerVibrate([60, 60, 60]);
-        setErrorMessage(data.message || 'Giriş yapılamadı.');
-      }
-    } catch (error) {
-      triggerVibrate([60, 60, 60]);
-      setErrorMessage(
-        error instanceof DeviceUnsupportedError
-          ? DEVICE_UNSUPPORTED_MESSAGE
-          : 'Sunucuya erişilemedi. İnternet veya Wi-Fi bağlantınızı kontrol edin.'
-      );
-    } finally {
-      setLoading(false);
+    if (!result.ok) {
+      vibrate([60, 60, 60]);
+      setErrorMessage(result.message);
+      return;
     }
+
+    const { user } = result.data;
+    signIn({
+      name: user.fullName || 'Personel',
+      employeeCode: user.employeeCode,
+      department: user.department,
+      job: user.job,
+      shift: user.shift,
+      shift_type: user.shift_type,
+    });
+
+    vibrate([40, 60, 40]);
+    router.replace('/');
   };
 
   return (
@@ -103,8 +90,8 @@ export default function SignInPage() {
           </p>
 
           {errorMessage && (
-            <div className="error-alert">
-              <span>{errorMessage}</span>
+            <div className="error-alert" role="alert">
+              {errorMessage}
             </div>
           )}
 
@@ -116,10 +103,12 @@ export default function SignInPage() {
               id="employeeCode"
               type="text"
               className="form-input"
-              placeholder="EMP-10293"
+              placeholder="EMP10293"
               autoCapitalize="characters"
               autoComplete="username"
               autoCorrect="off"
+              spellCheck={false}
+              maxLength={50}
               value={employeeCode}
               onChange={(e) => setEmployeeCode(e.target.value.toUpperCase())}
             />
@@ -127,26 +116,29 @@ export default function SignInPage() {
             <label className="form-label" htmlFor="password">
               Şifre
             </label>
-            <input
-              id="password"
-              type="password"
-              className="form-input"
-              placeholder="••••••••"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div className="password-field">
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                className="form-input password-input"
+                placeholder="••••••••"
+                autoComplete="current-password"
+                maxLength={200}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? 'Şifreyi gizle' : 'Şifreyi göster'}
+              >
+                {showPassword ? <EyeOff size={22} /> : <Eye size={22} />}
+              </button>
+            </div>
 
-            <button
-              type="submit"
-              className="submit-button"
-              disabled={loading}
-            >
-              {loading ? (
-                <Loader2 className="button-spinner" size={20} />
-              ) : (
-                'Giriş yap'
-              )}
+            <button type="submit" className="submit-button" disabled={loading}>
+              {loading ? <Loader2 className="spin" size={22} /> : 'Giriş yap'}
             </button>
           </form>
         </div>

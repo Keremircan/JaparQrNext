@@ -13,10 +13,12 @@ export const pool =
     database: process.env.DB_NAME,
     password: process.env.DB_PASSWORD,
     port: Number(process.env.DB_PORT) || 5432,
-    ssl: {
-      // Supabase bağlantısı için zorunlu
-      rejectUnauthorized: false,
-    },
+    // Supabase SSL zorunlu tutar. DB_CA_CERT (Supabase panelinden indirilen CA
+    // sertifikasının PEM içeriği) tanımlıysa sunucu sertifikası doğrulanır;
+    // tanımlı değilse bağlantı şifrelidir ama karşı tarafın kimliği doğrulanmaz.
+    ssl: process.env.DB_CA_CERT
+      ? { ca: process.env.DB_CA_CERT, rejectUnauthorized: true }
+      : { rejectUnauthorized: false },
     // Serverless ortamlar için havuz optimizasyonu
     max: 10,
     idleTimeoutMillis: 30000,

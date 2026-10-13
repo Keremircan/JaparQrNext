@@ -1,25 +1,41 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { pool } from '../../../lib/db';
-import { enforceDeviceBinding, readSignedRequest } from '../../../lib/deviceBinding';
+import {
+  bindDeviceAtLogin,
+  failureResponse,
+  findEmployee,
+  isEmployeeCode,
+  readSignedRequest,
+} from '../../../lib/deviceBinding';
+import {
+  clearAttempts,
+  clientIp,
+  isRateLimited,
+  recordAttempt,
+} from '../../../lib/rateLimit';
+
+// Kaba kuvvet koruması: 10 dakikada sicil başına 8, IP başına 40 hatalı deneme
+const WINDOW_MS = 10 * 60 * 1000;
+const MAX_FAILURES_PER_ACCOUNT = 8;
+const MAX_FAILURES_PER_IP = 40;
+const MAX_PASSWORD_LENGTH = 200;
+
+// Var olmayan sicil için de bcrypt çalıştırılır ki yanıt süresi sicilin
+// kayıtlı olup olmadığını ele vermesin.
+const DUMMY_HASH = bcrypt.hashSync('japar-dummy-password', 10);
 
 export async function POST(request: Request) {
   try {
     const signed = await readSignedRequest(request);
-    if (!signed.ok) {
-      return NextResponse.json(
-        { success: false, code: signed.code, message: signed.message },
-        { status: signed.status }
-      );
-    }
+    if (!signed.ok) return failureResponse(signed);
 
     const { employeeCode, password, legacyHardwareId } = signed.body;
 
     if (
-      typeof employeeCode !== 'string' ||
-      !employeeCode ||
+      !isEmployeeCode(employeeCode) ||
       typeof password !== 'string' ||
-      !password
+      !password ||
+      password.length > MAX_PASSWORD_LENGTH
     ) {
       return NextResponse.json(
         { success: false, message: 'Sicil no ve şifre gereklidir.' },
@@ -27,22 +43,37 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await pool.query(
-      `SELECT id, employee_code, full_name, password_hash, is_active, department, job, shift, shift_type,
-              registered_hardware_id, device_public_key 
-       FROM employees 
-       WHERE employee_code = $1`,
-      [employeeCode]
-    );
-
-    if (result.rows.length === 0) {
+    const ipKey = `login:ip:${clientIp(request)}`;
+    const accountKey = `login:acc:${employeeCode}`;
+    if (
+      isRateLimited(ipKey, MAX_FAILURES_PER_IP, WINDOW_MS) ||
+      isRateLimited(accountKey, MAX_FAILURES_PER_ACCOUNT, WINDOW_MS)
+    ) {
       return NextResponse.json(
-        { success: false, message: 'Kullanıcı bulunamadı.' },
-        { status: 404 }
+        {
+          success: false,
+          message:
+            'Çok fazla hatalı deneme yapıldı. Lütfen 10 dakika sonra tekrar deneyin.',
+        },
+        { status: 429 }
       );
     }
 
-    const employee = result.rows[0];
+    const employee = await findEmployee(employeeCode);
+    const isPasswordValid = await bcrypt.compare(
+      password,
+      employee?.password_hash ?? DUMMY_HASH
+    );
+
+    // Sicil yok / şifre yanlış ayrımı bilerek yapılmaz (hesap keşfini önler)
+    if (!employee || !isPasswordValid) {
+      recordAttempt(ipKey, WINDOW_MS);
+      recordAttempt(accountKey, WINDOW_MS);
+      return NextResponse.json(
+        { success: false, message: 'Sicil numarası veya şifre hatalı.' },
+        { status: 401 }
+      );
+    }
 
     if (!employee.is_active) {
       return NextResponse.json(
@@ -51,35 +82,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const isPasswordValid = await bcrypt.compare(
-      password,
-      employee.password_hash
-    );
-
-    if (!isPasswordValid) {
-      return NextResponse.json(
-        { success: false, message: 'Hatalı şifre girdiniz.' },
-        { status: 401 }
-      );
-    }
-
     // Cihaz eşleme: şifre doğrulandıktan SONRA yapılır ki sicil numarasını bilen
     // biri başkasının hesabını kendi telefonuna bağlayamasın.
-    const binding = await enforceDeviceBinding(
-      employee,
-      {
-        deviceKey: signed.deviceKey,
-        deviceLabel: signed.deviceLabel,
-        legacyHardwareId,
-      },
-      'login'
-    );
-    if (!binding.ok) {
-      return NextResponse.json(
-        { success: false, code: binding.code, message: binding.message },
-        { status: binding.status }
-      );
-    }
+    const binding = await bindDeviceAtLogin(employee, {
+      deviceKey: signed.deviceKey,
+      deviceLabel: signed.deviceLabel,
+      legacyHardwareId,
+    });
+    if (!binding.ok) return failureResponse(binding);
+
+    clearAttempts(accountKey);
 
     return NextResponse.json({
       success: true,

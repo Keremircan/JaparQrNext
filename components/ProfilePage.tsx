@@ -7,13 +7,13 @@ import {
   Briefcase,
   Info,
   LogOut,
-  ShieldAlert,
   ShieldCheck,
   Smartphone,
 } from 'lucide-react';
 import { useSession } from '../context/useSession';
+import { apiPost, requiresRelogin } from '../lib/api';
 import { formatDate, formatDateTime } from '../lib/datetime';
-import { signedPost } from '../lib/deviceId';
+import { getInitials } from '../lib/ui';
 
 type Profile = {
   employeeCode: string;
@@ -25,8 +25,7 @@ type Profile = {
   isActive: boolean;
   hireDate: string | null;
   device: {
-    bound: boolean;
-    label: string | null;
+    label: string;
     boundAt: string | null;
   };
 };
@@ -88,25 +87,19 @@ export default function ProfilePage() {
     let ignore = false;
 
     const load = async () => {
-      try {
-        const response = await signedPost('/api/profile', { employeeCode });
-        const data = await response.json();
-        if (ignore) return;
-        setState(
-          response.ok && data?.success
-            ? { status: 'ready', profile: data.profile as Profile }
-            : {
-                status: 'error',
-                message: data?.message || 'Profil bilgileri alınamadı.',
-              }
-        );
-      } catch {
-        if (!ignore) {
-          setState({
-            status: 'error',
-            message: 'Sunucuya erişilemedi. Bağlantınızı kontrol edin.',
-          });
-        }
+      const result = await apiPost<{ profile: Profile }>('/api/profile', {
+        employeeCode,
+      });
+      if (ignore) return;
+
+      if (result.ok) {
+        setState({ status: 'ready', profile: result.data.profile });
+      } else if (requiresRelogin(result)) {
+        // Cihaz hesaba bağlı değil (ör. yönetici sıfırladı): oturum geçersiz
+        signOut();
+        router.replace('/login');
+      } else {
+        setState({ status: 'error', message: result.message });
       }
     };
     void load();
@@ -114,7 +107,7 @@ export default function ProfilePage() {
     return () => {
       ignore = true;
     };
-  }, [employeeCode, attempt]);
+  }, [employeeCode, attempt, signOut, router]);
 
   if (!employee) return null;
 
@@ -129,14 +122,6 @@ export default function ProfilePage() {
   const shiftType = profile?.shiftType ?? employee.shift_type ?? null;
   const shiftText = [shift, shiftType].filter(Boolean).join(' / ');
   const isActive = profile?.isActive ?? true;
-
-  const initials = fullName
-    .split(' ')
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toLocaleUpperCase('tr-TR');
 
   const handleSignOut = () => {
     signOut();
@@ -163,7 +148,7 @@ export default function ProfilePage() {
       {/* Avatar & Kimlik */}
       <section className="mb-4 flex flex-col items-center rounded-2xl border border-slate-200 bg-white px-4 py-6 text-center shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
         <div className="flex h-20 w-20 items-center justify-center rounded-full bg-slate-900 text-2xl font-bold text-white">
-          {initials}
+          {getInitials(fullName)}
         </div>
         <p className="mt-3 mb-0 text-xl font-bold">{fullName}</p>
         <p className="mt-1 mb-0 text-sm text-slate-500">{job ?? 'Personel'}</p>
@@ -221,15 +206,10 @@ export default function ProfilePage() {
             <Row label="Durum">
               {loading ? (
                 <Skeleton />
-              ) : device?.bound ? (
+              ) : (
                 <span className="inline-flex items-center gap-1.5 text-green-700">
                   <ShieldCheck size={16} />
                   Kayıtlı · Bu cihaza bağlı
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 text-amber-600">
-                  <ShieldAlert size={16} />
-                  Henüz eşlenmedi
                 </span>
               )}
             </Row>
@@ -250,9 +230,8 @@ export default function ProfilePage() {
 
         <p className="mt-3 mb-0 flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-xs leading-relaxed text-slate-500">
           <Info size={14} className="mt-0.5 shrink-0" />
-          {device && !device.bound
-            ? 'Bu cihaz ilk karekod okutmanızda hesabınıza bağlanacaktır.'
-            : 'Hesabınız bu cihaza kilitlidir. Telefonunuzu değiştirdiğinizde İnsan Kaynakları veya Amirinizle iletişime geçiniz.'}
+          Hesabınız bu cihaza kilitlidir. Telefonunuzu değiştirdiğinizde
+          İnsan Kaynakları veya Amirinizle iletişime geçiniz.
         </p>
       </Card>
 
@@ -266,7 +245,7 @@ export default function ProfilePage() {
         Güvenli Çıkış Yap
       </button>
 
-      <p className="mt-6 mb-0 text-center text-xs text-slate-400">
+      <p className="mt-6 mb-0 text-center text-xs text-slate-500">
         Japar PDKS v{process.env.NEXT_PUBLIC_APP_VERSION} · PWA
       </p>
     </div>

@@ -10,9 +10,12 @@ import {
   Calendar,
   RotateCw,
   Loader2,
+  WifiOff,
 } from 'lucide-react';
 import { useSession } from '../context/useSession';
-import { formatLongDate, formatTime } from '../lib/datetime';
+import { apiPost, requiresRelogin } from '../lib/api';
+import { formatDate, formatLongDate, formatTime } from '../lib/datetime';
+import { getFirstName, getInitials, vibrate } from '../lib/ui';
 import '../styles/HomePage.css';
 
 type AttendanceLog = {
@@ -22,147 +25,120 @@ type AttendanceLog = {
   createdAt: string; // UTC ISO
 };
 
+type LogsResponse = {
+  logList: AttendanceLog[];
+  lastType: 'IN' | 'OUT' | null;
+};
+
+// Çalışma süresi sayacının yenilenme aralığı
+const CLOCK_TICK_MS = 30_000;
+
+// Giriş-çıkış çiftlerinin toplam süresi; personel hâlâ içerideyse açık kalan
+// giriş şu ana kadar sayılır.
+function calculateWorkMs(logs: AttendanceLog[], onShift: boolean, now: number): number {
+  const sorted = [...logs].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+
+  let totalMs = 0;
+  let lastIn: number | null = null;
+
+  for (const log of sorted) {
+    const time = new Date(log.createdAt).getTime();
+    if (log.type === 'IN') {
+      lastIn = time;
+    } else if (lastIn !== null) {
+      totalMs += time - lastIn;
+      lastIn = null;
+    }
+  }
+
+  if (lastIn !== null && onShift) totalMs += now - lastIn;
+  return Math.max(0, totalMs);
+}
+
+function formatDuration(ms: number): string {
+  const totalMinutes = Math.floor(ms / 60_000);
+  return `${Math.floor(totalMinutes / 60)} sa ${totalMinutes % 60} dk`;
+}
+
 export default function HomePage() {
-  const { employee, isLoading, signOut, setLastType } = useSession();
+  const { employee, signOut, setLastType } = useSession();
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
-  const [workingTime, setWorkingTime] = useState('0s 0dk');
+  const [error, setError] = useState<string | null>(null);
   const [logList, setLogList] = useState<AttendanceLog[]>([]);
+  const [now, setNow] = useState(() => Date.now());
 
-  // Oturum kontrolü (Oturum yüklenene kadar bekle, yoksa login'e yönlendir)
-  useEffect(() => {
-    if (!isLoading && !employee) {
-      router.replace('/login');
-    }
-  }, [employee, isLoading, router]);
-
-  const today = formatLongDate(new Date());
-
-  const triggerVibrate = (pattern: number | number[] = 30) => {
-    if (typeof window !== 'undefined' && 'vibrate' in navigator) {
-      try {
-        navigator.vibrate(pattern);
-      } catch {
-        // Tarayıcı izin vermiyorsa sessizce geç
-      }
-    }
-  };
-
-  const calculateWorkDuration = (logs: AttendanceLog[]) => {
-    if (!logs || logs.length === 0) {
-      setWorkingTime('0s 0dk');
-      return;
-    }
-
-    const sorted = [...logs].sort(
-      (a, b) =>
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-
-    let totalMs = 0;
-    let lastInTime: Date | null = null;
-
-    for (const log of sorted) {
-      const logDate = new Date(log.createdAt);
-
-      if (log.type === 'IN') {
-        lastInTime = logDate;
-      } else if (log.type === 'OUT' && lastInTime) {
-        totalMs += logDate.getTime() - lastInTime.getTime();
-        lastInTime = null;
-      }
-    }
-
-    if (lastInTime) {
-      totalMs += Date.now() - lastInTime.getTime();
-    }
-
-    const totalMinutes = Math.floor(Math.max(0, totalMs) / (1000 * 60));
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-
-    setWorkingTime(`${hours}s ${minutes}dk`);
-  };
+  const employeeCode = employee?.employeeCode;
 
   // Veri çekme fonksiyonu
   const fetchLogs = useCallback(async () => {
-    if (!employee?.employeeCode) return;
+    if (!employeeCode) return;
 
     setLoading(true);
+    const result = await apiPost<LogsResponse>('/api/listLogs', { employeeCode });
+    setLoading(false);
 
-    try {
-      const response = await fetch('/api/listLogs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          employeeCode: employee.employeeCode.trim(),
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data?.success) {
-        const logs: AttendanceLog[] = data.logList || [];
-        setLogList(logs);
-        calculateWorkDuration(logs);
-
-        if (logs.length > 0) {
-          setLastType(logs[0].type);
-        } else {
-          setLastType(null);
-        }
-      } else {
-        setLogList([]);
-        setWorkingTime('0s 0dk');
-        setLastType(null);
-      }
-    } catch {
-      triggerVibrate([50, 50, 50]);
-      alert('Sunucuya erişilemedi. İnternet veya ağ bağlantınızı kontrol edin.');
-    } finally {
-      setLoading(false);
+    if (result.ok) {
+      setLogList(result.data.logList ?? []);
+      setLastType(result.data.lastType ?? null);
+      setError(null);
+      setNow(Date.now());
+    } else if (requiresRelogin(result)) {
+      // Cihaz hesaba bağlı değil (ör. yönetici sıfırladı): oturum geçersiz
+      signOut();
+      router.replace('/login');
+    } else {
+      // Hata durumunda mevcut liste ve vardiya durumu KORUNUR; aksi halde
+      // geçici bir sunucu hatası personeli "vardiya dışı" gösterirdi.
+      vibrate([50, 50, 50]);
+      setError(result.message);
     }
-  }, [employee?.employeeCode, setLastType]);
+  }, [employeeCode, setLastType, signOut, router]);
 
   // Manuel buton yenilemesi
-  const handleManualRefresh = async () => {
+  const handleManualRefresh = () => {
     if (loading) return;
-    triggerVibrate(25);
-    await fetchLogs();
+    vibrate(25);
+    void fetchLogs();
   };
 
-  // Sayfa yüklendiğinde logları çek
+  // Sayfa açıldığında ve uygulama yeniden öne geldiğinde logları çek
   useEffect(() => {
-    if (!employee?.employeeCode) return;
-
     let ignore = false;
 
     queueMicrotask(() => {
-      if (!ignore) {
-        void fetchLogs();
-      }
+      if (!ignore) void fetchLogs();
     });
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void fetchLogs();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       ignore = true;
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [employee?.employeeCode, fetchLogs]);
+  }, [fetchLogs]);
 
-  if (isLoading || !employee) {
-    return null; // Oturum kontrolü sırasında ekran parlamasını önle
+  // Çalışma süresi ekranda canlı ilerlesin
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  if (!employee) {
+    return null; // AuthGuard yönlendirmeyi yapar
   }
 
   // Son hareket giriş ise personel içeridedir; çıkış veya kayıt yoksa vardiya dışı
   const onShift = employee.lastType === 'IN';
-
-  const initials = (employee?.name ?? 'Ç')
-    .split(' ')
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-
+  const workingTime = formatDuration(calculateWorkMs(logList, onShift, now));
+  const todayText = formatDate(now);
+  const lastLog = logList[0];
 
   return (
     <div className="home-container">
@@ -170,23 +146,35 @@ export default function HomePage() {
       <header className="top-bar">
         <div>
           <span className="kicker">JAPAR · DEVAM TAKİBİ</span>
-          <h1 className="greeting">Merhaba, {employee?.name.trim().split(' ')[0] ?? 'Çalışan'}</h1>
-          <p className="date-text">{today}</p>
+          <h1 className="greeting">Merhaba, {getFirstName(employee.name)}</h1>
+          <p className="date-text">{formatLongDate(now)}</p>
         </div>
-        <div className="top-actions">
+        <button
+          type="button"
+          onClick={handleManualRefresh}
+          className="icon-refresh-btn"
+          aria-label="Yenile"
+          disabled={loading}
+        >
+          <RotateCw className={loading ? 'spin' : ''} size={20} />
+        </button>
+      </header>
+
+      {/* Bağlantı / Sunucu Hatası */}
+      {error && (
+        <div className="error-banner" role="alert">
+          <WifiOff size={18} className="error-banner-icon" />
+          <span className="error-banner-text">{error}</span>
           <button
-            onClick={() => void handleManualRefresh()}
-            className="icon-refresh-btn"
-            title="Yenile"
+            type="button"
+            className="error-banner-btn"
+            onClick={handleManualRefresh}
             disabled={loading}
           >
-            <RotateCw className={loading ? 'spin' : ''} size={18} />
-          </button>
-          <button onClick={signOut} className="sign-out-btn">
-            Çıkış
+            Tekrar dene
           </button>
         </div>
-      </header>
+      )}
 
       {/* Profil Kartı */}
       <button
@@ -195,13 +183,13 @@ export default function HomePage() {
         onClick={() => router.push('/profile')}
         aria-label="Kullanıcı profiline git"
       >
-        <div className="avatar">{initials}</div>
+        <div className="avatar">{getInitials(employee.name)}</div>
         <div className="profile-meta">
-          <span className="profile-name">{employee?.name}</span>
+          <span className="profile-name">{employee.name}</span>
           <span className="profile-role">
-            {employee?.job ?? 'Personel'} · {employee?.department ?? 'Departman'}
+            {employee.job ?? 'Personel'} · {employee.department ?? 'Departman'}
           </span>
-          <span className="profile-code">Sicil {employee?.employeeCode}</span>
+          <span className="profile-code">Sicil {employee.employeeCode}</span>
         </div>
         <div className={`status-chip ${onShift ? 'status-on' : 'status-off'}`}>
           <span className="status-dot" />
@@ -213,17 +201,23 @@ export default function HomePage() {
       </button>
 
       {/* QR Tarama Aksiyonu */}
-      <button onClick={() => router.push('/scan')} className="primary-action-card">
+      <button
+        type="button"
+        onClick={() => router.push('/scan')}
+        className="primary-action-card"
+      >
         <div className="primary-icon-wrap">
-          <QrCode size={22} color="#FFFFFF" />
+          <QrCode size={26} color="#FFFFFF" />
         </div>
         <div className="primary-copy">
-          <span className="primary-title">QR ile yoklama</span>
+          <span className="primary-title">
+            {onShift ? 'Çıkış için QR okut' : 'Giriş için QR okut'}
+          </span>
           <span className="primary-subtitle">
-            Giriş noktasındaki karekodu okutun
+            Kapıdaki ekranda görünen karekodu okutun
           </span>
         </div>
-        <ChevronRight size={20} color="#FFFFFF" />
+        <ChevronRight size={22} color="#FFFFFF" />
       </button>
 
       {/* İstatistikler */}
@@ -231,69 +225,71 @@ export default function HomePage() {
         <div className="stat-card">
           <span className="stat-label">Son İşlem</span>
           <span className="stat-value">
-            {logList.length > 0 ? formatTime(logList[0].createdAt) : '--:--'}
+            {lastLog ? formatTime(lastLog.createdAt) : '--:--'}
           </span>
           <span className="stat-hint">
-            {logList.length > 0 ? logList[0].gate : 'Kayıt yok'}
+            {lastLog ? (lastLog.type === 'IN' ? 'Giriş' : 'Çıkış') : 'Kayıt yok'}
           </span>
         </div>
         <div className="stat-card">
           <span className="stat-label">Vardiya</span>
-          <span className="stat-value-sm">
-            {employee?.shift ?? '08:00 – 16:00'}
-          </span>
-          <span className="stat-hint">{employee?.shift_type ?? 'Gündüz'}</span>
+          <span className="stat-value-sm">{employee.shift ?? '—'}</span>
+          <span className="stat-hint">{employee.shift_type ?? 'Tanımsız'}</span>
         </div>
         <div className="stat-card">
           <span className="stat-label">Bugün</span>
           <span className="stat-value">{workingTime}</span>
-          <span className="stat-hint">
-            {onShift ? 'İçeride' : 'Mola / Çıkış'}
-          </span>
+          <span className="stat-hint">{onShift ? 'İçeride' : 'Vardiya dışı'}</span>
         </div>
       </section>
 
       {/* Bugünkü Hareketler Başlığı */}
       <div className="section-header-row">
-        <h3 className="section-title">Bugünkü hareketler</h3>
-        {loading && <Loader2 size={16} className="spin accent-spinner" />}
+        <h2 className="section-title">Bugünkü hareketler</h2>
+        {loading && <Loader2 size={18} className="spin" color="#2563eb" />}
       </div>
 
       {/* Log Listesi */}
       <div className="log-list">
-        {logList.length === 0 && !loading ? (
+        {logList.length === 0 ? (
           <div className="empty-box">
             <Calendar size={34} className="empty-icon" />
             <p className="empty-text">
-              Bugüne ait giriş/çıkış kaydı bulunamadı.
+              {loading
+                ? 'Hareketler yükleniyor...'
+                : 'Bugüne ait giriş/çıkış kaydı bulunamadı.'}
             </p>
           </div>
         ) : (
-          logList.map((item, index) => (
-            <div
-              key={item.id}
-              className={`log-item ${index === logList.length - 1 ? 'log-item-last' : ''}`}
-            >
-              <div
-                className={`log-icon-badge ${
-                  item.type === 'IN' ? 'badge-in' : 'badge-out'
-                }`}
-              >
-                {item.type === 'IN' ? (
-                  <LogIn size={18} color="#16a34a" />
-                ) : (
-                  <LogOut size={18} color="#dc2626" />
-                )}
+          logList.map((item) => {
+            // Gece vardiyasında dün başlayan giriş de listede yer alır
+            const logDate = formatDate(item.createdAt);
+            return (
+              <div key={item.id} className="log-item">
+                <div
+                  className={`log-icon-badge ${
+                    item.type === 'IN' ? 'badge-in' : 'badge-out'
+                  }`}
+                >
+                  {item.type === 'IN' ? (
+                    <LogIn size={20} color="#15803d" />
+                  ) : (
+                    <LogOut size={20} color="#b91c1c" />
+                  )}
+                </div>
+                <div className="log-copy">
+                  <span className="log-title">
+                    {item.type === 'IN' ? 'Giriş' : 'Çıkış'}
+                  </span>
+                  <span className="log-meta">
+                    {item.gate}
+                    {logDate !== todayText && ` · ${logDate}`}
+                  </span>
+                </div>
+                <span className="log-time">{formatTime(item.createdAt)}</span>
               </div>
-              <div className="log-copy">
-                <span className="log-title">
-                  {item.type === 'IN' ? 'Giriş' : 'Çıkış'} · {item.gate}
-                </span>
-                <span className="log-meta">Onaylandı</span>
-              </div>
-              <span className="log-time">{formatTime(item.createdAt)}</span>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

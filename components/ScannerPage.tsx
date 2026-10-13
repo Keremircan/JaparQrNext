@@ -2,7 +2,13 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, ArrowLeft, CameraOff } from "lucide-react";
+import {
+  Loader2,
+  ArrowLeft,
+  CameraOff,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
 import { useSession } from "../context/useSession";
 import {
   CameraError,
@@ -14,20 +20,24 @@ import type {
   DecodeRequest,
   DecodeResponse,
 } from "../lib/scanner/decoder.worker";
-import {
-  DEVICE_UNSUPPORTED_MESSAGE,
-  DeviceUnsupportedError,
-  signedPost,
-} from "../lib/deviceId";
+import { apiPost, isDeviceFailure, requiresRelogin } from "../lib/api";
+import { formatTime } from "../lib/datetime";
+import { vibrate } from "../lib/ui";
 import "../styles/ScannerPage.css";
 
 // Analiz için kareden kesilen orta bölgenin azami kenarı (px). Kamera
 // çözünürlüğü bunun altındaysa ölçekleme yapılmaz, pikseller olduğu gibi gider.
 const MAX_DECODE_SIZE = 1080;
 const SCAN_INTERVAL_MS = 70;
+// Başarılı okutmadan sonra ana sayfaya otomatik dönüş süresi
+const SUCCESS_REDIRECT_MS = 2500;
+// Başarısız denemeden sonra aynı karenin hemen yeniden okunmaması için bekleme
+const RETRY_UNLOCK_MS = 1200;
 
-const CAMERA_ERROR_TEXT: Record<
-  CameraErrorKind,
+type ScannerErrorKind = CameraErrorKind | "decoder";
+
+const SCANNER_ERROR_TEXT: Record<
+  ScannerErrorKind,
   { title: string; desc: string }
 > = {
   denied: {
@@ -50,113 +60,99 @@ const CAMERA_ERROR_TEXT: Record<
     title: "Kamera Açılamadı",
     desc: "Kamera başlatılırken beklenmeyen bir hata oluştu. Lütfen yeniden deneyin.",
   },
+  decoder: {
+    title: "Karekod Okuyucu Yüklenemedi",
+    desc: "Okuyucu bileşeni indirilemedi. İnternet bağlantınızı kontrol edip yeniden deneyin.",
+  },
 };
 
+type VerifyResponse = {
+  type: "IN" | "OUT";
+  message: string;
+  gate: string;
+  createdAt: string;
+};
+
+type ScanResult =
+  | { success: true; type: "IN" | "OUT"; gate: string; time: string }
+  | { success: false; title: string; message: string; relogin: boolean };
+
 export default function ScannerPage() {
-  const { employee, setLastType } = useSession();
+  const { employee, setLastType, signOut } = useSession();
   const router = useRouter();
 
-  const [cameraError, setCameraError] = useState<CameraErrorKind | null>(null);
+  const [scannerError, setScannerError] = useState<ScannerErrorKind | null>(
+    null,
+  );
   const [cameraReady, setCameraReady] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [resultModal, setResultModal] = useState<{
-    open: boolean;
-    success: boolean;
-    title: string;
-    message: string;
-  }>({
-    open: false,
-    success: false,
-    title: "",
-    message: "",
-  });
+  const [result, setResult] = useState<ScanResult | null>(null);
 
   const isScanningLocked = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // IN / OUT tespiti
-  const scanType: "IN" | "OUT" = employee?.lastType === "IN" ? "OUT" : "IN";
-  const employeeId = employee?.employeeCode ?? "EMP-00000";
+  // Ekrandaki ön bilgi; kaydedilen işlem türünü sunucu belirler
+  const expectedType: "IN" | "OUT" = employee?.lastType === "IN" ? "OUT" : "IN";
+  const employeeCode = employee?.employeeCode;
 
-  const triggerVibrate = (pattern: number | number[] = 30) => {
-    if (typeof window !== "undefined" && "vibrate" in navigator) {
-      try {
-        navigator.vibrate(pattern);
-      } catch {
-        // İzin yoksa yoksay
-      }
-    }
+  // Bileşen kapanırken bekleyen zamanlayıcılar (otomatik dönüş vb.) iptal edilir
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  const later = (fn: () => void, ms: number) => {
+    timersRef.current.push(setTimeout(fn, ms));
   };
 
-  const resetScanner = useCallback(() => {
-    setResultModal({ open: false, success: false, title: "", message: "" });
-    setTimeout(() => {
+  const retryScan = () => {
+    setResult(null);
+    later(() => {
       isScanningLocked.current = false;
-    }, 1200);
-  }, []);
+    }, RETRY_UNLOCK_MS);
+  };
 
   const handleBarcodeScanned = useCallback(
     async (decodedText: string) => {
-      if (isScanningLocked.current) return;
+      if (isScanningLocked.current || !employeeCode) return;
 
       isScanningLocked.current = true;
       setLoading(true);
-      triggerVibrate(40);
+      vibrate(40);
 
-      try {
-        // İstek cihaz anahtarıyla imzalanır (bkz. lib/deviceId.ts)
-        const response = await signedPost("/api/verify", {
-          qrData: decodedText,
-          employeeId,
-          type: scanType,
-        });
+      const response = await apiPost<VerifyResponse>("/api/verify", {
+        qrData: decodedText,
+        employeeCode,
+      });
+      setLoading(false);
 
-        const result = await response.json();
-
-        if (response.ok && result.success) {
-          triggerVibrate([40, 60, 40]);
-          // Durumu güncelle (IN yapıldıysa OUT'a hazırla, OUT yapıldıysa IN'e hazırla)
-          setLastType(scanType);
-
-          setResultModal({
-            open: true,
-            success: true,
-            title: "İşlem Başarılı",
-            message: `${result.message}\nKapı: ${result.gate}`,
-          });
-        } else {
-          triggerVibrate([60, 60, 60]);
-          setResultModal({
-            open: true,
-            success: false,
-            title:
-              typeof result.code === "string" &&
-              result.code.startsWith("DEVICE_")
-                ? "Yetkisiz Cihaz"
-                : "İşlem Reddedildi",
-            message: result.message || "Kod doğrulanamadı.",
-          });
-        }
-      } catch (error) {
-        triggerVibrate([60, 60, 60]);
-        setResultModal({
-          open: true,
-          success: false,
-          title:
-            error instanceof DeviceUnsupportedError
-              ? "Cihaz Doğrulanamadı"
-              : "Bağlantı Hatası",
-          message:
-            error instanceof DeviceUnsupportedError
-              ? DEVICE_UNSUPPORTED_MESSAGE
-              : "Sunucuya erişilemedi. Wi-Fi bağlantınızı kontrol edin.",
-        });
-      } finally {
-        setLoading(false);
+      if (response.ok) {
+        const { type, gate, createdAt } = response.data;
+        vibrate([40, 60, 40]);
+        setLastType(type);
+        setResult({ success: true, type, gate, time: formatTime(createdAt) });
+        timersRef.current.push(
+          setTimeout(() => router.replace("/"), SUCCESS_REDIRECT_MS),
+        );
+        return;
       }
+
+      vibrate([60, 60, 60]);
+      setResult({
+        success: false,
+        title:
+          response.status === 0
+            ? "Bağlantı Hatası"
+            : isDeviceFailure(response)
+              ? "Yetkisiz Cihaz"
+              : "İşlem Reddedildi",
+        message: response.message,
+        relogin: requiresRelogin(response),
+      });
     },
-    [employeeId, scanType, setLastType],
+    [employeeCode, setLastType, router],
   );
 
   // Kamera effect'i her render'da yeniden kurulmasın diye güncel callback
@@ -180,10 +176,15 @@ export default function ScannerPage() {
       new URL("../lib/scanner/decoder.worker.ts", import.meta.url),
       { type: "module" },
     );
+    const onDecoderFailure = (detail: unknown) => {
+      console.error("QR çözücü çalışmıyor:", detail);
+      if (!disposed) setScannerError("decoder");
+    };
+    worker.onerror = (event) => onDecoderFailure(event.message);
     worker.onmessage = (event: MessageEvent<DecodeResponse>) => {
       const message = event.data;
       if (message.type === "fatal") {
-        console.error("QR çözücü yüklenemedi:", message.message);
+        onDecoderFailure(message.message);
         return;
       }
       if (message.type !== "result") return;
@@ -248,17 +249,26 @@ export default function ScannerPage() {
         }
         stream = opened;
         video.srcObject = opened;
+
+        // Akış dışarıdan kesilirse (başka uygulama kamerayı aldı, sistem
+        // kesintisi vb.) donmuş kare kalmasın diye kamera yeniden açılır.
+        opened.getVideoTracks()[0]?.addEventListener("ended", () => {
+          if (disposed || stream !== opened) return;
+          setCameraReady(false);
+          void start();
+        });
+
         await video.play().catch(() => {
           // autoplay + muted + playsInline zaten oynatmayı başlatır
         });
         if (disposed || current !== generation) return;
-        setCameraError(null);
+        setScannerError((kind) => (kind === "decoder" ? kind : null));
         setCameraReady(true);
       } catch (err) {
         if (disposed || current !== generation) return;
         console.error("Kamera açılamadı:", err);
         setCameraReady(false);
-        setCameraError(err instanceof CameraError ? err.kind : "unknown");
+        setScannerError(err instanceof CameraError ? err.kind : "unknown");
       }
     };
 
@@ -285,7 +295,7 @@ export default function ScannerPage() {
     };
   }, [attempt]);
 
-  const errorText = cameraError ? CAMERA_ERROR_TEXT[cameraError] : null;
+  const errorText = scannerError ? SCANNER_ERROR_TEXT[scannerError] : null;
 
   return (
     <div className="scanner-page-root">
@@ -300,28 +310,38 @@ export default function ScannerPage() {
       />
 
       {errorText ? (
-        <div className="scanner-center-view">
-          <CameraOff size={48} color="#ef4444" />
+        <div className="scanner-center-view" role="alert">
+          <CameraOff size={56} color="#f87171" />
           <h2 className="perm-title">{errorText.title}</h2>
           <p className="perm-desc">{errorText.desc}</p>
           <button
-            className="perm-btn"
+            type="button"
+            className="scanner-btn scanner-btn-primary"
             onClick={() => {
-              setCameraError(null);
+              setScannerError(null);
               setAttempt((n) => n + 1);
             }}
           >
             Yeniden Dene
           </button>
-          <button className="back-link-btn" onClick={() => router.push("/")}>
+          <button
+            type="button"
+            className="scanner-btn scanner-btn-ghost"
+            onClick={() => router.replace("/")}
+          >
             Ana Sayfaya Dön
           </button>
         </div>
       ) : (
         <>
           {/* Üst Geri Butonu */}
-          <button className="top-back-button" onClick={() => router.push("/")}>
-            <ArrowLeft size={22} color="#FFFFFF" />
+          <button
+            type="button"
+            className="top-back-button"
+            aria-label="Ana sayfaya dön"
+            onClick={() => router.replace("/")}
+          >
+            <ArrowLeft size={24} color="#FFFFFF" />
           </button>
 
           {/* Arayüz Katmanı (Overlay) */}
@@ -329,20 +349,24 @@ export default function ScannerPage() {
             {/* Giriş / Çıkış Durum Rozeti */}
             <div
               className={`status-banner ${
-                scanType === "IN" ? "banner-in" : "banner-out"
+                expectedType === "IN" ? "banner-in" : "banner-out"
               }`}
             >
               <span className="banner-dot" />
               <span className="banner-text">
-                {scanType === "IN" ? "GİRİŞ İŞLEMİ" : "ÇIKIŞ İŞLEMİ"}
+                {expectedType === "IN" ? "GİRİŞ İŞLEMİ" : "ÇIKIŞ İŞLEMİ"}
               </span>
             </div>
 
             {/* Tarama Hedef Çerçevesi */}
             <div className="target-frame">
+              <span className="frame-corner corner-tl" />
+              <span className="frame-corner corner-tr" />
+              <span className="frame-corner corner-bl" />
+              <span className="frame-corner corner-br" />
               {(loading || !cameraReady) && (
                 <div className="loading-card">
-                  <Loader2 size={36} color="#00E676" className="spin" />
+                  <Loader2 size={40} color="#22c55e" className="spin" />
                   <span className="loading-label">
                     {loading ? "Doğrulanıyor..." : "Kamera açılıyor..."}
                   </span>
@@ -353,43 +377,66 @@ export default function ScannerPage() {
             {/* Bilgi Metni */}
             <div className="hint-pill">
               {loading
-                ? "Giriş doğrulanıyor..."
-                : "Karekodu çerçeveye hizalayın, telefonu 20-30 cm uzakta tutun"}
+                ? "Lütfen bekleyin..."
+                : "Karekodu çerçevenin içine getirin, telefonu 20-30 cm uzakta tutun"}
             </div>
           </div>
         </>
       )}
 
-      {/* Doğrulama Sonuç Modal'ı */}
-      {resultModal.open && (
-        <div className="modal-backdrop">
-          <div className="modal-card">
-            <h3
-              className={`modal-title ${
-                resultModal.success ? "success-text" : "danger-text"
-              }`}
+      {/* Tam Ekran Sonuç */}
+      {result?.success && (
+        <div className="result-screen result-success" role="status">
+          <CheckCircle2 size={112} strokeWidth={1.75} />
+          <h2 className="result-title">
+            {result.type === "IN" ? "GİRİŞ YAPILDI" : "ÇIKIŞ YAPILDI"}
+          </h2>
+          <p className="result-time">{result.time}</p>
+          <p className="result-message">Kapı: {result.gate}</p>
+          <button
+            type="button"
+            className="scanner-btn result-btn"
+            onClick={() => router.replace("/")}
+          >
+            Tamam
+          </button>
+        </div>
+      )}
+
+      {result && !result.success && (
+        <div className="result-screen result-failure" role="alert">
+          <XCircle size={112} strokeWidth={1.75} />
+          <h2 className="result-title">{result.title}</h2>
+          <p className="result-message">{result.message}</p>
+          {result.relogin ? (
+            <button
+              type="button"
+              className="scanner-btn result-btn"
+              onClick={() => {
+                signOut();
+                router.replace("/login");
+              }}
             >
-              {resultModal.title}
-            </h3>
-            <p className="modal-message">{resultModal.message}</p>
-            <div className="modal-actions">
-              {resultModal.success ? (
-                <button
-                  className="modal-btn confirm"
-                  onClick={() => {
-                    resetScanner();
-                    router.push("/");
-                  }}
-                >
-                  Tamam
-                </button>
-              ) : (
-                <button className="modal-btn retry" onClick={resetScanner}>
-                  Tekrar Dene
-                </button>
-              )}
-            </div>
-          </div>
+              Yeniden Giriş Yap
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="scanner-btn result-btn"
+                onClick={retryScan}
+              >
+                Tekrar Dene
+              </button>
+              <button
+                type="button"
+                className="scanner-btn scanner-btn-ghost"
+                onClick={() => router.replace("/")}
+              >
+                Ana Sayfaya Dön
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

@@ -8,6 +8,7 @@
   padding-bottom: calc(40px + env(safe-area-inset-bottom));
   padding-left: 16px;
   min-height: 100vh;
+  min-height: 100dvh;
   box-sizing: border-box;
   background-color: #f8fafc;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -18,12 +19,12 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 12px;
   margin-bottom: 20px;
-  /* safe-area container'a verildiği için buradan kaldırıldı */
 }
 
 .kicker {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.8px;
   color: #2563eb;
@@ -31,44 +32,72 @@
 }
 
 .greeting {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
   margin: 4px 0 0 0;
 }
 
 .date-text {
-  font-size: 13px;
+  font-size: 14px;
   color: #64748b;
   margin: 2px 0 0 0;
   text-transform: capitalize;
 }
 
-.top-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
 .icon-refresh-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 8px;
+  border-radius: 12px;
   cursor: pointer;
   color: #0f172a;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background-color 150ms ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.sign-out-btn {
+.icon-refresh-btn:active {
+  background: #f1f5f9;
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+}
+
+.error-banner-icon {
+  flex-shrink: 0;
+  color: #b91c1c;
+}
+
+.error-banner-text {
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #991b1b;
+}
+
+.error-banner-btn {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 14px;
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #0f172a;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: #991b1b;
   cursor: pointer;
 }
 
@@ -95,10 +124,11 @@
   width: 48px;
   height: 48px;
   border-radius: 24px;
+  flex-shrink: 0;
   background: #0f172a;
   color: #ffffff;
   font-weight: 700;
-  font-size: 15px;
+  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -106,7 +136,8 @@
 
 .profile-meta {
   flex: 1;
-  margin-left: 12px;
+  min-width: 0;
+  margin: 0 10px 0 12px;
 }
 
 /* Dokunma geri bildirimi: hafif basılma + arka planın koyulaşması */
@@ -124,7 +155,7 @@
 .profile-chevron {
   flex-shrink: 0;
   margin-left: 6px;
-  color: #94a3b8;
+  color: #64748b;
   transition: transform 150ms ease;
 }
 
@@ -138,19 +169,19 @@
 }
 
 .profile-name {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   margin: 0;
 }
 
 .profile-role {
-  font-size: 13px;
+  font-size: 14px;
   color: #64748b;
   margin: 2px 0 0 0;
 }
 
 .profile-code {
-  font-size: 12px;
+  font-size: 13px;
   color: #475569;
   display: block;
   margin-top: 2px;
@@ -175,7 +206,7 @@
 }
 
 .status-text {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -191,7 +222,7 @@
 }
 
 .status-on .status-text {
-  color: #16a34a;
+  color: #15803d;
 }
 
 /* Noktanın etrafında yayılan halka: personelin şu an içeride olduğunu vurgular */
@@ -234,7 +265,7 @@
 }
 
 .status-off .status-text {
-  color: #64748b;
+  color: #475569;
 }
 
 .primary-action-card {
@@ -242,22 +273,26 @@
   background: #0f172a;
   border: none;
   border-radius: 16px;
-  padding: 16px;
+  padding: 20px 16px;
   display: flex;
   align-items: center;
   margin-bottom: 20px;
   cursor: pointer;
   text-align: left;
+  font: inherit;
+  transition: transform 150ms ease, background-color 150ms ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .primary-action-card:active {
   background: #1e293b;
+  transform: scale(0.98);
 }
 
 .primary-icon-wrap {
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.12);
   display: flex;
   align-items: center;
@@ -273,13 +308,13 @@
 
 .primary-title {
   color: #ffffff;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
 }
 
 .primary-subtitle {
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
   margin-top: 2px;
 }
 
@@ -291,6 +326,7 @@
 
 .stat-card {
   flex: 1;
+  min-width: 0;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
@@ -300,7 +336,7 @@
 }
 
 .stat-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: #64748b;
 }
@@ -314,14 +350,14 @@
 
 .stat-value-sm {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #0f172a;
 }
 
 .stat-hint {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: #64748b;
 }
 
@@ -333,7 +369,7 @@
 }
 
 .section-title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
   margin: 0;
 }
@@ -352,14 +388,15 @@
   border-bottom: 1px solid #e2e8f0;
 }
 
-.log-item-last {
+.log-item:last-child {
   border-bottom: none;
 }
 
 .log-icon-badge {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -381,18 +418,18 @@
 }
 
 .log-title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
 }
 
 .log-meta {
-  font-size: 12px;
-  color: #16a34a;
+  font-size: 13px;
+  color: #64748b;
   margin-top: 2px;
 }
 
 .log-time {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
   color: #0f172a;
 }
@@ -411,16 +448,7 @@
 }
 
 .empty-text {
-  font-size: 13px;
+  font-size: 14px;
   color: #64748b;
   margin: 0;
-}
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }

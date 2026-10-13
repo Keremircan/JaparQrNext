@@ -2,23 +2,25 @@ import type { Metadata, Viewport } from 'next';
 import { Providers } from './providers';
 import './globals.css';
 
+// Manifest app/manifest.ts dosyasından üretilir ve <head>'e otomatik eklenir.
 export const metadata: Metadata = {
   title: 'Japar PDKS',
   description: 'Personel Devam Takip Sistemi',
-  manifest: '../manifest.json',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
+    // Açık zeminli sayfalarda saat/pil simgeleri okunabilsin diye koyu yazılı
+    // varsayılan durum çubuğu (black-translucent beyaz yazı kullanır).
+    statusBarStyle: 'default',
     title: 'Japar PDKS',
   },
   icons: {
-    icon: '../icons/icon-192.png',
-    apple: '../icons/apple-touch-icon-180x180.png',
+    icon: '/icons/icon-192.png',
+    apple: '/icons/apple-touch-icon-180x180.png',
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#000000',
+  themeColor: '#0f172a',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -33,12 +35,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="tr">
-      <head>
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="Japar PDKS" />
-      </head>
       <body>
         <Providers>{children}</Providers>
       </body>

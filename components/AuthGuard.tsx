@@ -11,37 +11,28 @@ interface AuthGuardProps {
 }
 
 export default function AuthGuard({ children, requireAuth = true }: AuthGuardProps) {
-  const { session, isLoading } = useSession();
+  const { employee, isLoading } = useSession();
   const router = useRouter();
+  const signedIn = Boolean(employee);
 
   useEffect(() => {
     if (isLoading) return;
 
-    if (requireAuth && !session) {
+    if (requireAuth && !signedIn) {
       router.replace('/login');
-    } else if (!requireAuth && session) {
+    } else if (!requireAuth && signedIn) {
       router.replace('/');
     }
-  }, [session, isLoading, requireAuth, router]);
+  }, [signedIn, isLoading, requireAuth, router]);
 
-  if (isLoading) {
+  // Oturum okunana veya yönlendirme tamamlanana kadar
+  if (isLoading || requireAuth !== signedIn) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          backgroundColor: '#ffffff',
-        }}
-      >
-        <Loader2 className="spin" size={36} color="#0f172a" />
+      <div className="app-loading" role="status" aria-label="Yükleniyor">
+        <Loader2 className="spin" size={36} />
       </div>
     );
   }
-
-  if (requireAuth && !session) return null;
-  if (!requireAuth && session) return null;
 
   return <>{children}</>;
 }

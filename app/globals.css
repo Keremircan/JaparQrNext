@@ -4,18 +4,6 @@
   box-sizing: border-box;
 }
 
-:root {
-  --background: #0f172a;
-  --foreground: #ffffff;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
 html {
   width: 100%;
   height: 100%;
@@ -29,15 +17,48 @@ body {
   min-height: 100dvh;
   margin: 0;
   padding: 0;
-  background-color: #0f172a;
-  color: #ffffff;
+  /* Sayfaların ortak açık zemini; yükleme ve kaydırma taşmasında da aynı renk görünür */
+  background-color: #f8fafc;
+  color: #0f172a;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow-x: hidden;
-  
+
   /* Dokunmatik gecikmeyi kaldırıp kaydırmayı hızlandırır */
   touch-action: pan-y;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Metin seçimi uygulama genelinde kapalı; giriş alanlarında imleç, seçim ve
+   yapıştırma çalışmaya devam etmeli (iOS'ta aksi halde alanlar düzenlenemeyebilir). */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Ortak dönen yükleme simgesi */
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Oturum okunurken / yönlendirme sırasında gösterilen tam ekran yükleme */
+.app-loading {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #0f172a;
 }

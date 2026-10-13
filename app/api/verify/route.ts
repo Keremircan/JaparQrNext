@@ -2,13 +2,29 @@ import { NextResponse } from 'next/server';
 import { pool } from '../../../lib/db';
 import { verifyQRData, usedTokens } from '../../../lib/qr';
 import { SQL_TODAY_START } from '../../../lib/datetime';
+import { enforceDeviceBinding, readSignedRequest } from '../../../lib/deviceBinding';
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { qrData, employeeId, hardwareId, type = 'IN' } = body;
+    // 0. İsteği imzalayan cihazın doğrulanması
+    const signed = await readSignedRequest(request);
+    if (!signed.ok) {
+      return NextResponse.json(
+        { success: false, code: signed.code, message: signed.message },
+        { status: signed.status }
+      );
+    }
 
-    if (!qrData || !employeeId || !hardwareId) {
+    const { qrData, employeeId, legacyHardwareId } = signed.body;
+    const type = signed.body.type ?? 'IN';
+
+    if (
+      typeof qrData !== 'string' ||
+      !qrData ||
+      typeof employeeId !== 'string' ||
+      !employeeId ||
+      (type !== 'IN' && type !== 'OUT')
+    ) {
       return NextResponse.json(
         { success: false, message: 'Eksik parametre gönderildi.' },
         { status: 400 }
@@ -43,7 +59,7 @@ export async function POST(request: Request) {
 
     // 3. PostgreSQL Personel Sorgusu
     const empQuery = await pool.query(
-      `SELECT id, employee_code, full_name, registered_hardware_id, is_active 
+      `SELECT id, employee_code, full_name, registered_hardware_id, device_public_key, is_active 
        FROM employees 
        WHERE employee_code = $1`,
       [employeeId]
@@ -65,21 +81,20 @@ export async function POST(request: Request) {
       );
     }
 
-    // 4. Cihaz Kilitleme (Hardware Binding) Kontrolü
-    if (!employee.registered_hardware_id) {
-      await pool.query(
-        'UPDATE employees SET registered_hardware_id = $1 WHERE id = $2',
-        [hardwareId, employee.id]
-      );
-      console.log(`[Cihaz Kilitlendi] ${employee.full_name} -> ${hardwareId}`);
-    } else if (employee.registered_hardware_id !== hardwareId) {
+    // 4. Cihaz Eşleme Kontrolü (bağlı cihaz yoksa ilk okutmada bağlanır)
+    const binding = await enforceDeviceBinding(
+      employee,
+      {
+        deviceKey: signed.deviceKey,
+        deviceLabel: signed.deviceLabel,
+        legacyHardwareId,
+      },
+      'verify'
+    );
+    if (!binding.ok) {
       return NextResponse.json(
-        {
-          success: false,
-          message:
-            'Yetkisiz Cihaz: Kayıtlı telefonunuz dışındaki bir cihazdan işlem yapılamaz!',
-        },
-        { status: 403 }
+        { success: false, code: binding.code, message: binding.message },
+        { status: binding.status }
       );
     }
 
@@ -136,7 +151,7 @@ export async function POST(request: Request) {
       `INSERT INTO attendance_logs (employee_code, factory_id, gate_id, hardware_id, log_type) 
        VALUES ($1, $2, $3, $4, $5) 
        RETURNING id, created_at`,
-      [employee.employee_code, factoryId, gateId, hardwareId, type]
+      [employee.employee_code, factoryId, gateId, signed.deviceKey, type]
     );
 
     const logRecord = logQuery.rows[0];

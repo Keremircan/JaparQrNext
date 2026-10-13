@@ -1,13 +1,26 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { pool } from '../../../lib/db';
+import { enforceDeviceBinding, readSignedRequest } from '../../../lib/deviceBinding';
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { employeeCode, password } = body;
+    const signed = await readSignedRequest(request);
+    if (!signed.ok) {
+      return NextResponse.json(
+        { success: false, code: signed.code, message: signed.message },
+        { status: signed.status }
+      );
+    }
 
-    if (!employeeCode || !password) {
+    const { employeeCode, password, legacyHardwareId } = signed.body;
+
+    if (
+      typeof employeeCode !== 'string' ||
+      !employeeCode ||
+      typeof password !== 'string' ||
+      !password
+    ) {
       return NextResponse.json(
         { success: false, message: 'Sicil no ve şifre gereklidir.' },
         { status: 400 }
@@ -15,7 +28,8 @@ export async function POST(request: Request) {
     }
 
     const result = await pool.query(
-      `SELECT id, employee_code, full_name, password_hash, is_active, department, job, shift, shift_type 
+      `SELECT id, employee_code, full_name, password_hash, is_active, department, job, shift, shift_type,
+              registered_hardware_id, device_public_key 
        FROM employees 
        WHERE employee_code = $1`,
       [employeeCode]
@@ -46,6 +60,24 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, message: 'Hatalı şifre girdiniz.' },
         { status: 401 }
+      );
+    }
+
+    // Cihaz eşleme: şifre doğrulandıktan SONRA yapılır ki sicil numarasını bilen
+    // biri başkasının hesabını kendi telefonuna bağlayamasın.
+    const binding = await enforceDeviceBinding(
+      employee,
+      {
+        deviceKey: signed.deviceKey,
+        deviceLabel: signed.deviceLabel,
+        legacyHardwareId,
+      },
+      'login'
+    );
+    if (!binding.ok) {
+      return NextResponse.json(
+        { success: false, code: binding.code, message: binding.message },
+        { status: binding.status }
       );
     }
 

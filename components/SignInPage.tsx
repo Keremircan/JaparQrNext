@@ -4,6 +4,11 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useSession } from '../context/useSession';
+import {
+  DEVICE_UNSUPPORTED_MESSAGE,
+  DeviceUnsupportedError,
+  signedPost,
+} from '../lib/deviceId';
 import '../styles/SignInPage.css'; // veya CSS dosyanızın bulunduğu yol
 
 export default function SignInPage() {
@@ -39,14 +44,10 @@ export default function SignInPage() {
     triggerVibrate(25);
 
     try {
-      // Next.js içinde doğrudan aynı origin'deki API route'u çağrılır:
-      const response = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          employeeCode: employeeCode.trim(),
-          password: password.trim(),
-        }),
+      // İstek cihaz anahtarıyla imzalanır; sunucu cihazı personele bağlar/denetler
+      const response = await signedPost('/api/login', {
+        employeeCode: employeeCode.trim(),
+        password: password.trim(),
       });
 
       const data = await response.json();
@@ -70,9 +71,13 @@ export default function SignInPage() {
         triggerVibrate([60, 60, 60]);
         setErrorMessage(data.message || 'Giriş yapılamadı.');
       }
-    } catch {
+    } catch (error) {
       triggerVibrate([60, 60, 60]);
-      setErrorMessage('Sunucuya erişilemedi. İnternet veya Wi-Fi bağlantınızı kontrol edin.');
+      setErrorMessage(
+        error instanceof DeviceUnsupportedError
+          ? DEVICE_UNSUPPORTED_MESSAGE
+          : 'Sunucuya erişilemedi. İnternet veya Wi-Fi bağlantınızı kontrol edin.'
+      );
     } finally {
       setLoading(false);
     }

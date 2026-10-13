@@ -153,6 +153,9 @@ export default function HomePage() {
     return null; // Oturum kontrolü sırasında ekran parlamasını önle
   }
 
+  // Son hareket giriş ise personel içeridedir; çıkış veya kayıt yoksa vardiya dışı
+  const onShift = employee.lastType === 'IN';
+
   const initials = (employee?.name ?? 'Ç')
     .split(' ')
     .map((part) => part[0])
@@ -166,7 +169,7 @@ export default function HomePage() {
       <header className="top-bar">
         <div>
           <span className="kicker">JAPAR · DEVAM TAKİBİ</span>
-          <h1 className="greeting">Merhaba, {employee?.name ?? 'Çalışan'}</h1>
+          <h1 className="greeting">Merhaba, {employee?.name[0] ?? 'Çalışan'}</h1>
           <p className="date-text">{today}</p>
         </div>
         <div className="top-actions">
@@ -199,9 +202,11 @@ export default function HomePage() {
           </span>
           <span className="profile-code">Sicil {employee?.employeeCode}</span>
         </div>
-        <div className="status-chip">
+        <div className={`status-chip ${onShift ? 'status-on' : 'status-off'}`}>
           <span className="status-dot" />
-          <span className="status-text">Vardiyada</span>
+          <span className="status-text">
+            {onShift ? 'Vardiyada' : 'Vardiya Dışı'}
+          </span>
         </div>
         <ChevronRight size={20} className="profile-chevron" aria-hidden="true" />
       </button>
@@ -242,7 +247,7 @@ export default function HomePage() {
           <span className="stat-label">Bugün</span>
           <span className="stat-value">{workingTime}</span>
           <span className="stat-hint">
-            {employee?.lastType === 'IN' ? 'İçeride' : 'Mola / Çıkış'}
+            {onShift ? 'İçeride' : 'Mola / Çıkış'}
           </span>
         </div>
       </section>

@@ -2,6 +2,7 @@
   position: relative;
   width: 100%;
   height: 100vh;
+  height: 100dvh;
   background-color: #000000;
   overflow: hidden;
   display: flex;
@@ -31,32 +32,16 @@
 }
 
 .camera-feed {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
+  /* Oranı bozmadan ekranı doldurur; taşan kenarlar kırpılır. QR analizi
+     ayrı bir bellek-içi tuvalde yapıldığı için bu ölçekleme taramayı etkilemez. */
+  object-fit: cover;
+  object-position: center;
   background-color: #000000;
   z-index: 1;
-}
-
-.camera-feed video {
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: contain !important;
-  display: block !important;
-}
-
-.camera-feed canvas {
-  position: absolute !important;
-  top: -9999px !important;
-  left: -9999px !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
 }
 
 .scanner-overlay {
@@ -149,8 +134,9 @@
 }
 
 .scanner-center-view {
-  min-height: 100vh;
-  min-height: 100dvh;
+  position: absolute;
+  inset: 0;
+  z-index: 20;
   background-color: #0f172a;
   display: flex;
   flex-direction: column;

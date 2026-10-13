@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# postinstall ile node_modules'tan kopyalanır (scripts/copy-zxing-wasm.mjs)
+/public/zxing/
+
 # production
 /build
 

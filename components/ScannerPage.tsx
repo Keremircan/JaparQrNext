@@ -2,18 +2,58 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Html5Qrcode } from "html5-qrcode";
 import { Loader2, ArrowLeft, CameraOff } from "lucide-react";
 import { useSession } from "../context/useSession";
+import {
+  CameraError,
+  openBackCamera,
+  stopStream,
+  type CameraErrorKind,
+} from "../lib/scanner/camera";
+import type {
+  DecodeRequest,
+  DecodeResponse,
+} from "../lib/scanner/decoder.worker";
 import "../styles/ScannerPage.css";
 
-const QR_REGION_ID = "pwa-qr-reader-region";
+// Analiz için kareden kesilen orta bölgenin azami kenarı (px). Kamera
+// çözünürlüğü bunun altındaysa ölçekleme yapılmaz, pikseller olduğu gibi gider.
+const MAX_DECODE_SIZE = 1080;
+const SCAN_INTERVAL_MS = 70;
+
+const CAMERA_ERROR_TEXT: Record<
+  CameraErrorKind,
+  { title: string; desc: string }
+> = {
+  denied: {
+    title: "Kamera İzni Gerekli",
+    desc: "Giriş/çıkış doğrulaması yapabilmek için tarayıcınızın kamera iznini onaylamanız gerekmektedir.",
+  },
+  insecure: {
+    title: "Kamera Kullanılamıyor",
+    desc: "Kamera yalnızca güvenli (HTTPS) bağlantıda açılabilir. Lütfen uygulamayı https adresinden açın.",
+  },
+  notfound: {
+    title: "Kamera Bulunamadı",
+    desc: "Bu cihazda kullanılabilir bir arka kamera bulunamadı.",
+  },
+  busy: {
+    title: "Kamera Meşgul",
+    desc: "Kamera başka bir uygulama tarafından kullanılıyor olabilir. Diğer uygulamaları kapatıp yeniden deneyin.",
+  },
+  unknown: {
+    title: "Kamera Açılamadı",
+    desc: "Kamera başlatılırken beklenmeyen bir hata oluştu. Lütfen yeniden deneyin.",
+  },
+};
 
 export default function ScannerPage() {
   const { employee, setLastType } = useSession();
   const router = useRouter();
 
-  const [permissionDenied, setPermissionDenied] = useState(false);
+  const [cameraError, setCameraError] = useState<CameraErrorKind | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(false);
   const [resultModal, setResultModal] = useState<{
     open: boolean;
@@ -28,7 +68,7 @@ export default function ScannerPage() {
   });
 
   const isScanningLocked = useRef(false);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // IN / OUT tespiti
   const scanType: "IN" | "OUT" = employee?.lastType === "IN" ? "OUT" : "IN";
@@ -68,7 +108,7 @@ export default function ScannerPage() {
 
   const handleBarcodeScanned = useCallback(
     async (decodedText: string) => {
-      if (isScanningLocked.current || loading) return;
+      if (isScanningLocked.current) return;
 
       isScanningLocked.current = true;
       setLoading(true);
@@ -122,116 +162,209 @@ export default function ScannerPage() {
         setLoading(false);
       }
     },
-    [employeeId, loading, scanType, setLastType],
+    [employeeId, scanType, setLastType],
   );
 
-  // Kamerayı başlatma ve temizleme
+  // Kamera effect'i her render'da yeniden kurulmasın diye güncel callback
+  // ref üzerinden okunur (aksi halde her okutmada kamera kapanıp açılır).
+  const onScanRef = useRef(handleBarcodeScanned);
   useEffect(() => {
-    const html5QrCode = new Html5Qrcode(QR_REGION_ID);
-    scannerRef.current = html5QrCode;
-
-    html5QrCode
-      .start(
-        { facingMode: "environment" }, // Arka kamerayı doğrudan kilitler
-        {
-          fps: 10,
-          disableFlip: true,
-        },
-        (decodedText) => {
-          console.log("KOD YAKALANDI:", decodedText);
-          void handleBarcodeScanned(decodedText);
-        },
-        () => {
-          // Boş kareler
-        },
-      )
-      .then(() => {
-        // iOS Safari için video akışını yerine oturtma
-        const videoElement = document.querySelector<HTMLVideoElement>(
-          `#${QR_REGION_ID} video`,
-        );
-        if (videoElement) {
-          videoElement.setAttribute("playsinline", "true");
-          videoElement.setAttribute("webkit-playsinline", "true");
-          videoElement.muted = true;
-          videoElement.play().catch(() => {});
-        }
-      })
-      .catch((err) => {
-        console.error("Kamera açılamadı:", err);
-        setPermissionDenied(true);
-      });
-
-    return () => {
-      if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current
-          .stop()
-          .then(() => scannerRef.current?.clear())
-          .catch((e) => console.error("Kamera durdurulamadı:", e));
-      }
-    };
+    onScanRef.current = handleBarcodeScanned;
   }, [handleBarcodeScanned]);
 
-  if (permissionDenied) {
-    return (
-      <div className="scanner-center-view">
-        <CameraOff size={48} color="#ef4444" />
-        <h2 className="perm-title">Kamera İzni Gerekli</h2>
-        <p className="perm-desc">
-          Giriş/çıkış doğrulaması yapabilmek için tarayıcınızın kamera iznini
-          onaylamanız gerekmektedir.
-        </p>
-        <button className="perm-btn" onClick={() => window.location.reload()}>
-          Yeniden Dene
-        </button>
-        <button className="back-link-btn" onClick={() => router.push("/")}>
-          Ana Sayfaya Dön
-        </button>
-      </div>
+  // Kamera + çözücü worker yaşam döngüsü
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    let disposed = false;
+    let stream: MediaStream | null = null;
+    let generation = 0; // üst üste binen start/stop çağrılarını ayırt eder
+    let workerBusy = false;
+
+    const worker = new Worker(
+      new URL("../lib/scanner/decoder.worker.ts", import.meta.url),
+      { type: "module" },
     );
-  }
+    worker.onmessage = (event: MessageEvent<DecodeResponse>) => {
+      const message = event.data;
+      if (message.type === "fatal") {
+        console.error("QR çözücü yüklenemedi:", message.message);
+        return;
+      }
+      if (message.type !== "result") return;
+      workerBusy = false;
+      if (message.text && !isScanningLocked.current) {
+        void onScanRef.current(message.text);
+      }
+    };
+
+    // Analiz tuvali DOM'a hiç eklenmez; ekrandaki <video>'nun CSS boyutundan
+    // bağımsız olarak kameranın gerçek piksellerinden beslenir.
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+
+    const scanFrame = () => {
+      if (workerBusy || isScanningLocked.current || !context) return;
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+
+      const { videoWidth, videoHeight } = video;
+      if (!videoWidth || !videoHeight) return;
+
+      // Karenin ortasındaki kare bölge (ekrandaki hedef çerçeveyi kapsar)
+      const side = Math.min(videoWidth, videoHeight);
+      const size = Math.min(side, MAX_DECODE_SIZE);
+      if (canvas.width !== size) {
+        canvas.width = size;
+        canvas.height = size;
+      }
+      context.drawImage(
+        video,
+        (videoWidth - side) / 2,
+        (videoHeight - side) / 2,
+        side,
+        side,
+        0,
+        0,
+        size,
+        size,
+      );
+
+      const { buffer } = context.getImageData(0, 0, size, size).data;
+      const request: DecodeRequest = { width: size, height: size, buffer };
+      workerBusy = true;
+      worker.postMessage(request, [buffer]);
+    };
+    const scanTimer = setInterval(scanFrame, SCAN_INTERVAL_MS);
+
+    const stop = () => {
+      generation++;
+      stopStream(stream);
+      stream = null;
+      video.srcObject = null;
+    };
+
+    const start = async () => {
+      const current = ++generation;
+      try {
+        const opened = await openBackCamera();
+        if (disposed || current !== generation) {
+          stopStream(opened);
+          return;
+        }
+        stream = opened;
+        video.srcObject = opened;
+        await video.play().catch(() => {
+          // autoplay + muted + playsInline zaten oynatmayı başlatır
+        });
+        if (disposed || current !== generation) return;
+        setCameraError(null);
+        setCameraReady(true);
+      } catch (err) {
+        if (disposed || current !== generation) return;
+        console.error("Kamera açılamadı:", err);
+        setCameraReady(false);
+        setCameraError(err instanceof CameraError ? err.kind : "unknown");
+      }
+    };
+
+    // iOS PWA arka plana alındığında kamera akışını dondurur ve geri
+    // dönüldüğünde siyah ekran kalır; görünürlük değişiminde akış yenilenir.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void start();
+      } else {
+        stop();
+        setCameraReady(false);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    if (document.visibilityState === "visible") void start();
+
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      clearInterval(scanTimer);
+      stop();
+      worker.terminate();
+    };
+  }, [attempt]);
+
+  const errorText = cameraError ? CAMERA_ERROR_TEXT[cameraError] : null;
 
   return (
     <div className="scanner-page-root">
-      {/* Üst Geri Butonu */}
-      <button className="top-back-button" onClick={() => router.push("/")}>
-        <ArrowLeft size={22} color="#FFFFFF" />
-      </button>
+      {/* Kamera Görüntüsü */}
+      <video
+        ref={videoRef}
+        className="camera-feed"
+        autoPlay
+        muted
+        playsInline
+        disablePictureInPicture
+      />
 
-      {/* Kamera Akış Konteyneri */}
-      <div id={QR_REGION_ID} className="camera-feed" />
-
-      {/* Arayüz Katmanı (Overlay) */}
-      <div className="scanner-overlay">
-        {/* Giriş / Çıkış Durum Rozeti */}
-        <div
-          className={`status-banner ${
-            scanType === "IN" ? "banner-in" : "banner-out"
-          }`}
-        >
-          <span className="banner-dot" />
-          <span className="banner-text">
-            {scanType === "IN" ? "GİRİŞ İŞLEMİ" : "ÇIKIŞ İŞLEMİ"}
-          </span>
+      {errorText ? (
+        <div className="scanner-center-view">
+          <CameraOff size={48} color="#ef4444" />
+          <h2 className="perm-title">{errorText.title}</h2>
+          <p className="perm-desc">{errorText.desc}</p>
+          <button
+            className="perm-btn"
+            onClick={() => {
+              setCameraError(null);
+              setAttempt((n) => n + 1);
+            }}
+          >
+            Yeniden Dene
+          </button>
+          <button className="back-link-btn" onClick={() => router.push("/")}>
+            Ana Sayfaya Dön
+          </button>
         </div>
+      ) : (
+        <>
+          {/* Üst Geri Butonu */}
+          <button className="top-back-button" onClick={() => router.push("/")}>
+            <ArrowLeft size={22} color="#FFFFFF" />
+          </button>
 
-        {/* Tarama Hedef Çerçevesi */}
-        <div className="target-frame">
-          {loading && (
-            <div className="loading-card">
-              <Loader2 size={36} color="#00E676" className="spin" />
-              <span className="loading-label">Doğrulanıyor...</span>
+          {/* Arayüz Katmanı (Overlay) */}
+          <div className="scanner-overlay">
+            {/* Giriş / Çıkış Durum Rozeti */}
+            <div
+              className={`status-banner ${
+                scanType === "IN" ? "banner-in" : "banner-out"
+              }`}
+            >
+              <span className="banner-dot" />
+              <span className="banner-text">
+                {scanType === "IN" ? "GİRİŞ İŞLEMİ" : "ÇIKIŞ İŞLEMİ"}
+              </span>
             </div>
-          )}
-        </div>
 
-        {/* Bilgi Metni */}
-        <div className="hint-pill">
-          {loading
-            ? "Giriş doğrulanıyor..."
-            : "Karekodu ekrandaki çerçevenin içine hizalayın"}
-        </div>
-      </div>
+            {/* Tarama Hedef Çerçevesi */}
+            <div className="target-frame">
+              {(loading || !cameraReady) && (
+                <div className="loading-card">
+                  <Loader2 size={36} color="#00E676" className="spin" />
+                  <span className="loading-label">
+                    {loading ? "Doğrulanıyor..." : "Kamera açılıyor..."}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Bilgi Metni */}
+            <div className="hint-pill">
+              {loading
+                ? "Giriş doğrulanıyor..."
+                : "Karekodu çerçeveye hizalayın, telefonu 20-30 cm uzakta tutun"}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Doğrulama Sonuç Modal'ı */}
       {resultModal.open && (

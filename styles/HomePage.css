@@ -87,6 +87,8 @@
   align-items: center;
   margin-bottom: 16px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  transition: transform 150ms ease, background-color 150ms ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .avatar {
@@ -107,8 +109,27 @@
   margin-left: 12px;
 }
 
+/* Dokunma geri bildirimi: hafif basılma + arka planın koyulaşması */
 .profile-card:active {
   background: #f1f5f9;
+  transform: scale(0.98);
+}
+
+.profile-card:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Kartın bir alt sayfaya açıldığını gösteren ok */
+.profile-chevron {
+  flex-shrink: 0;
+  margin-left: 6px;
+  color: #94a3b8;
+  transition: transform 150ms ease;
+}
+
+.profile-card:active .profile-chevron {
+  transform: translateX(2px);
 }
 
 .profile-name,

@@ -189,7 +189,7 @@ export default function HomePage() {
         type="button"
         className="profile-card"
         onClick={() => router.push('/profile')}
-        aria-label="Profil detaylarını aç"
+        aria-label="Kullanıcı profiline git"
       >
         <div className="avatar">{initials}</div>
         <div className="profile-meta">
@@ -203,6 +203,7 @@ export default function HomePage() {
           <span className="status-dot" />
           <span className="status-text">Vardiyada</span>
         </div>
+        <ChevronRight size={20} className="profile-chevron" aria-hidden="true" />
       </button>
 
       {/* QR Tarama Aksiyonu */}

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { serverErrorResponse } from '../../../lib/apiError';
 import bcrypt from 'bcryptjs';
 import {
   bindDeviceAtLogin,
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
     const signed = await readSignedRequest(request);
     if (!signed.ok) return failureResponse(signed);
 
-    const { employeeCode, password, legacyHardwareId } = signed.body;
+    const { employeeCode, password } = signed.body;
 
     if (
       !isEmployeeCode(employeeCode) ||
@@ -87,7 +88,6 @@ export async function POST(request: Request) {
     const binding = await bindDeviceAtLogin(employee, {
       deviceKey: signed.deviceKey,
       deviceLabel: signed.deviceLabel,
-      legacyHardwareId,
     });
     if (!binding.ok) return failureResponse(binding);
 
@@ -107,10 +107,6 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    console.error('Login Hatası:', error);
-    return NextResponse.json(
-      { success: false, message: 'Sunucu hatası oluştu.' },
-      { status: 500 }
-    );
+    return serverErrorResponse('Login', error);
   }
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { serverErrorResponse } from '../../../lib/apiError';
 import { pool } from '../../../lib/db';
 import { authenticateRequest, failureResponse } from '../../../lib/deviceBinding';
 import { getLastLog, getTodayLogs } from '../../../lib/attendance';
@@ -21,10 +22,6 @@ export async function POST(request: Request) {
       lastType: last?.type ?? null,
     });
   } catch (error) {
-    console.error('Log Listeleme Hatası:', error);
-    return NextResponse.json(
-      { success: false, message: 'Sunucu hatası oluştu.' },
-      { status: 500 }
-    );
+    return serverErrorResponse('listLogs', error);
   }
 }

@@ -8,7 +8,6 @@
 const DB_NAME = 'japar-device';
 const STORE_NAME = 'keys';
 const KEY_ID = 'device-key-v1';
-const LEGACY_STORAGE_KEY = 'device_hardware_id';
 const REQUEST_TIMEOUT_MS = 15_000;
 
 const KEY_ALGORITHM: EcKeyGenParams = { name: 'ECDSA', namedCurve: 'P-256' };
@@ -133,16 +132,6 @@ function getIdentity(): Promise<DeviceIdentity> {
   return identityPromise;
 }
 
-// Eski sistemin localStorage kimliği: yalnızca daha önce bu kimlikle eşlenmiş
-// personelin yeni anahtara sorunsuz geçebilmesi için gönderilir, artık üretilmez.
-function readLegacyHardwareId(): string | undefined {
-  try {
-    return localStorage.getItem(LEGACY_STORAGE_KEY) ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * Cihaz anahtarıyla imzalanmış JSON POST isteği gönderir.
  * İmza `${path}\n${body}` üzerinden alınır; sunucu aynı metni doğrular.
@@ -155,10 +144,7 @@ export async function signedPost(
 ): Promise<Response> {
   const identity = await getIdentity();
 
-  const body = JSON.stringify({
-    ...payload,
-    legacyHardwareId: readLegacyHardwareId(),
-  });
+  const body = JSON.stringify(payload);
 
   const signature = await crypto.subtle.sign(
     SIGN_ALGORITHM,

@@ -27,14 +27,13 @@ export type EmployeeRow = {
   job: string | null;
   shift: string | null;
   shift_type: string | null;
-  registered_hardware_id: string | null;
   device_public_key: string | null;
   device_bound_at: Date | null;
   device_label: string | null;
 };
 
 const EMPLOYEE_COLUMNS = `id, employee_code, full_name, password_hash, is_active, department, job,
-       shift, shift_type, registered_hardware_id, device_public_key, device_bound_at, device_label`;
+       shift, shift_type, device_public_key, device_bound_at, device_label`;
 
 type SignedRequest =
   | { ok: true; body: Record<string, unknown>; deviceKey: string; deviceLabel: string }
@@ -250,7 +249,7 @@ export async function authenticateRequest(
  */
 export async function bindDeviceAtLogin(
   employee: EmployeeRow,
-  device: { deviceKey: string; deviceLabel: string; legacyHardwareId?: unknown }
+  device: { deviceKey: string; deviceLabel: string }
 ): Promise<{ ok: true } | RequestFailure> {
   const { deviceKey, deviceLabel } = device;
   const reject = async (failure: RequestFailure, event: DeviceEvent) => {
@@ -264,23 +263,13 @@ export async function bindDeviceAtLogin(
       : reject(MISMATCH, 'MISMATCH');
   }
 
-  // Eski sistemde (localStorage kimliği) eşlenmiş personel: yeni anahtara yalnızca
-  // o eski kimliği taşıyan telefon geçebilir.
-  if (
-    employee.registered_hardware_id &&
-    employee.registered_hardware_id !== device.legacyHardwareId
-  ) {
-    return reject(MISMATCH, 'MISMATCH');
-  }
-
   try {
     // "IS NULL" koşulu eşzamanlı iki ilk-bağlama isteğinden yalnızca birini geçirir
     const bound = await pool.query(
       `UPDATE employees
           SET device_public_key = $1,
               device_bound_at = now(),
-              device_label = $2,
-              registered_hardware_id = NULL
+              device_label = $2
         WHERE id = $3 AND device_public_key IS NULL`,
       [deviceKey, deviceLabel, employee.id]
     );

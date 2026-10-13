@@ -1,20 +1,21 @@
 -- Güvenlik ve veri bütünlüğü sıkılaştırması
 --
 -- ELLE ÇALIŞTIRILIR (Supabase > SQL Editor). Uygulama bu dosya çalıştırılmadan
--- da çalışır; ancak 1. adım yapılmadıkça tablolar Supabase REST API'sinden
--- anon anahtarıyla okunup değiştirilebilir durumdadır.
+-- da çalışır.
 
--- 1) RLS: employees ve attendance_logs yalnızca sunucudan (postgres rolü)
---    erişilebilir olsun. Politika tanımlanmadığı için anon/authenticated
---    anahtarlarıyla hiçbir satır okunamaz/yazılamaz. Bu proje veritabanına
---    postgres rolüyle bağlandığından etkilenmez.
---    DİKKAT: Bu tablolara anon anahtarla erişen başka bir uygulamanız varsa
---    (ör. yönetim paneli) o uygulama çalışmayı durdurur.
-alter table public.employees       enable row level security;
-alter table public.attendance_logs enable row level security;
+-- 1) RLS — UYGULANMADI (bilinçli karar, 2026-10-13):
+--    Yönetim paneli aynı veritabanına bağlanacağı için employees ve
+--    attendance_logs tablolarında satır düzeyi güvenlik AÇILMIYOR.
+--    Sonuç: bu tablolar Supabase REST API'sinden anon anahtarıyla okunup
+--    değiştirilebilir durumdadır. Panel bu tablolara sunucu tarafından
+--    (service_role anahtarı veya doğrudan Postgres bağlantısı) erişecek şekilde
+--    kurulursa aşağıdaki satırlar paneli bozmadan açılabilir.
+--
+-- alter table public.employees       enable row level security;
+-- alter table public.attendance_logs enable row level security;
+-- revoke all on public.employees       from anon, authenticated;
+-- revoke all on public.attendance_logs from anon, authenticated;
 
-revoke all on public.employees             from anon, authenticated;
-revoke all on public.attendance_logs       from anon, authenticated;
 revoke all on public.device_binding_events from anon, authenticated;
 
 -- 2) attendance_logs bütünlüğü
@@ -38,10 +39,8 @@ alter table public.attendance_logs
 alter table public.employees
   add column if not exists hire_date date;
 
--- 4) İSTEĞE BAĞLI — eski cihaz kimliği kolonunun kaldırılması.
---    Tüm personel yeni sisteme geçtikten sonra (aşağıdaki sorgu 0 dönünce)
---    çalıştırın ve ardından lib/deviceBinding.ts içindeki eski kimlik
---    kontrolünü kaldırın:
---      select count(*) from employees where registered_hardware_id is not null;
---
--- alter table public.employees drop column registered_hardware_id;
+-- 4) Eski cihaz kimliği kolonunun kaldırılması.
+--    Uygulama kodu artık bu kolonu kullanmıyor. Kolonu kaldırdıktan sonra
+--    20261014100000_reset_function_without_legacy_column.sql dosyasını da
+--    çalıştırın; aksi halde reset_employee_device fonksiyonu hata verir.
+alter table public.employees drop column if exists registered_hardware_id;

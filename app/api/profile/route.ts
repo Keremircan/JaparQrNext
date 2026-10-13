@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { serverErrorResponse } from '../../../lib/apiError';
 import { pool } from '../../../lib/db';
 import { authenticateRequest, failureResponse } from '../../../lib/deviceBinding';
 import { describeDevice } from '../../../lib/deviceLabel';
@@ -35,10 +36,6 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    console.error('Profil Hatası:', error);
-    return NextResponse.json(
-      { success: false, message: 'Sunucu hatası oluştu.' },
-      { status: 500 }
-    );
+    return serverErrorResponse('profile', error);
   }
 }

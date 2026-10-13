@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { serverErrorResponse } from '../../../lib/apiError';
 import { pool } from '../../../lib/db';
 import { verifyQRData } from '../../../lib/qr';
 import { authenticateRequest, failureResponse } from '../../../lib/deviceBinding';
@@ -94,10 +95,6 @@ export async function POST(request: Request) {
       client.release();
     }
   } catch (dbError) {
-    console.error('Veritabanı Hatası:', dbError);
-    return NextResponse.json(
-      { success: false, message: 'Sunucu veritabanı hatası oluştu.' },
-      { status: 500 }
-    );
+    return serverErrorResponse('verify', dbError);
   }
 }

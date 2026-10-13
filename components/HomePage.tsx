@@ -185,20 +185,25 @@ export default function HomePage() {
       </header>
 
       {/* Profil Kartı */}
-      <section className="profile-card">
+      <button
+        type="button"
+        className="profile-card"
+        onClick={() => router.push('/profile')}
+        aria-label="Profil detaylarını aç"
+      >
         <div className="avatar">{initials}</div>
         <div className="profile-meta">
-          <h2 className="profile-name">{employee?.name}</h2>
-          <p className="profile-role">
+          <span className="profile-name">{employee?.name}</span>
+          <span className="profile-role">
             {employee?.job ?? 'Personel'} · {employee?.department ?? 'Departman'}
-          </p>
+          </span>
           <span className="profile-code">Sicil {employee?.employeeCode}</span>
         </div>
         <div className="status-chip">
           <span className="status-dot" />
           <span className="status-text">Vardiyada</span>
         </div>
-      </section>
+      </button>
 
       {/* QR Tarama Aksiyonu */}
       <button onClick={() => router.push('/scan')} className="primary-action-card">

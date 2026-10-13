@@ -25,6 +25,13 @@ const dateTimeFormatter = new Intl.DateTimeFormat('tr-TR', {
   hourCycle: 'h23',
 });
 
+const dateFormatter = new Intl.DateTimeFormat('tr-TR', {
+  timeZone: APP_TIME_ZONE,
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+});
+
 const longDateFormatter = new Intl.DateTimeFormat('tr-TR', {
   timeZone: APP_TIME_ZONE,
   weekday: 'long',
@@ -47,6 +54,12 @@ export function formatTime(value: string | number | Date): string {
 export function formatDateTime(value: string | number | Date): string {
   const date = toDate(value);
   return date ? dateTimeFormatter.format(date).replace(',', '') : '--';
+}
+
+/** "13.10.2026" */
+export function formatDate(value: string | number | Date): string {
+  const date = toDate(value);
+  return date ? dateFormatter.format(date) : '--';
 }
 
 /** "13 Ekim Salı" */

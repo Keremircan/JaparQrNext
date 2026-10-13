@@ -73,6 +73,12 @@
 }
 
 .profile-card {
+  /* Tıklanabilir (button) olduğu için tarayıcı varsayılanları sıfırlanır */
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
@@ -99,6 +105,15 @@
 .profile-meta {
   flex: 1;
   margin-left: 12px;
+}
+
+.profile-card:active {
+  background: #f1f5f9;
+}
+
+.profile-name,
+.profile-role {
+  display: block;
 }
 
 .profile-name {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../lib/db';
 import { verifyQRData, usedTokens } from '../../../lib/qr';
+import { SQL_TODAY_START } from '../../../lib/datetime';
 
 export async function POST(request: Request) {
   try {
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
       `SELECT log_type 
        FROM attendance_logs 
        WHERE employee_code = $1 
-         AND created_at::date = CURRENT_DATE 
+         AND created_at >= ${SQL_TODAY_START}
        ORDER BY created_at DESC 
        LIMIT 1`,
       [employeeId]

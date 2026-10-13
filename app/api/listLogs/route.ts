@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { pool } from '../../../lib/db';
+import { SQL_TODAY_START } from '../../../lib/datetime';
 
 export async function POST(request: Request) {
   try {
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
     const result = await pool.query(
       `SELECT id, gate_id, log_type, created_at 
        FROM attendance_logs 
-       WHERE employee_code = $1 AND created_at::date = CURRENT_DATE
+       WHERE employee_code = $1 AND created_at >= ${SQL_TODAY_START}
        ORDER BY created_at DESC`,
       [employeeCode]
     );
@@ -32,10 +33,8 @@ export async function POST(request: Request) {
       id: row.id,
       gate: row.gate_id,
       type: row.log_type,
-      time: new Date(row.created_at).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
+      // Biçimlendirme istemcide yapılır; API her zaman UTC ISO döner
+      createdAt: new Date(row.created_at).toISOString(),
     }));
 
     return NextResponse.json({

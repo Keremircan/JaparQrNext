@@ -12,13 +12,14 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useSession } from '../context/useSession';
+import { formatLongDate, formatTime } from '../lib/datetime';
 import '../styles/HomePage.css';
 
 type AttendanceLog = {
   id: number;
   gate: string;
   type: 'IN' | 'OUT';
-  time: string;
+  createdAt: string; // UTC ISO
 };
 
 export default function HomePage() {
@@ -36,11 +37,7 @@ export default function HomePage() {
     }
   }, [employee, isLoading, router]);
 
-  const today = new Intl.DateTimeFormat('tr-TR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  }).format(new Date());
+  const today = formatLongDate(new Date());
 
   const triggerVibrate = (pattern: number | number[] = 30) => {
     if (typeof window !== 'undefined' && 'vibrate' in navigator) {
@@ -58,23 +55,16 @@ export default function HomePage() {
       return;
     }
 
-    const parseTimeToDate = (timeStr: string): Date => {
-      const [hours, minutes] = timeStr.split(':').map(Number);
-      const date = new Date();
-      date.setHours(hours || 0, minutes || 0, 0, 0);
-      return date;
-    };
-
     const sorted = [...logs].sort(
       (a, b) =>
-        parseTimeToDate(a.time).getTime() - parseTimeToDate(b.time).getTime()
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
 
     let totalMs = 0;
     let lastInTime: Date | null = null;
 
     for (const log of sorted) {
-      const logDate = parseTimeToDate(log.time);
+      const logDate = new Date(log.createdAt);
 
       if (log.type === 'IN') {
         lastInTime = logDate;
@@ -229,7 +219,7 @@ export default function HomePage() {
         <div className="stat-card">
           <span className="stat-label">Son İşlem</span>
           <span className="stat-value">
-            {logList.length > 0 ? logList[0].time : '--:--'}
+            {logList.length > 0 ? formatTime(logList[0].createdAt) : '--:--'}
           </span>
           <span className="stat-hint">
             {logList.length > 0 ? logList[0].gate : 'Kayıt yok'}
@@ -289,7 +279,7 @@ export default function HomePage() {
                 </span>
                 <span className="log-meta">Onaylandı</span>
               </div>
-              <span className="log-time">{item.time}</span>
+              <span className="log-time">{formatTime(item.createdAt)}</span>
             </div>
           ))
         )}

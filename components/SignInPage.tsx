@@ -56,6 +56,11 @@ export default function SignInPage() {
       return;
     }
 
+    // Sayfa gizlenince durum korunduğu için (bkz. cacheComponents) şifre
+    // bellekte ve çıkış sonrası formda kalmasın
+    setPassword('');
+    setShowPassword(false);
+
     const { user } = result.data;
     signIn({
       name: user.fullName || 'Personel',

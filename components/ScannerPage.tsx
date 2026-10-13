@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   Loader2,
@@ -29,8 +35,6 @@ import "../styles/ScannerPage.css";
 // çözünürlüğü bunun altındaysa ölçekleme yapılmaz, pikseller olduğu gibi gider.
 const MAX_DECODE_SIZE = 1080;
 const SCAN_INTERVAL_MS = 70;
-// Başarılı okutmadan sonra ana sayfaya otomatik dönüş süresi
-const SUCCESS_REDIRECT_MS = 2500;
 // Başarısız denemeden sonra aynı karenin hemen yeniden okunmaması için bekleme
 const RETRY_UNLOCK_MS = 1200;
 
@@ -91,27 +95,45 @@ export default function ScannerPage() {
 
   const isScanningLocked = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Ekrandaki ön bilgi; kaydedilen işlem türünü sunucu belirler
   const expectedType: "IN" | "OUT" = employee?.lastType === "IN" ? "OUT" : "IN";
   const employeeCode = employee?.employeeCode;
 
-  // Bileşen kapanırken bekleyen zamanlayıcılar (otomatik dönüş vb.) iptal edilir
-  useEffect(() => {
-    const timers = timersRef.current;
-    return () => timers.forEach(clearTimeout);
+  // Sayfadan her çıkışta tarama durumu sıfırlanır.
+  //
+  // cacheComponents açıkken Next.js sayfadan ayrılınca bileşeni kaldırmaz,
+  // <Activity> ile gizler: effect'ler temizlenir ama useState/useRef değerleri
+  // KORUNUR. Sıfırlanmazsa /scan'e dönüldüğünde kamera yerine bir önceki
+  // sonuç ekranı görünür ve tarama kilidi açık kalır. useLayoutEffect, sıfırlamanın
+  // sayfa gizlenmeden önce uygulanmasını sağlar (dönüşte eski ekran parlamaz).
+  useLayoutEffect(() => {
+    return () => {
+      if (unlockTimerRef.current) clearTimeout(unlockTimerRef.current);
+      unlockTimerRef.current = null;
+      isScanningLocked.current = false;
+      setResult(null);
+      setLoading(false);
+      setScannerError(null);
+      setCameraReady(false);
+    };
   }, []);
-
-  const later = (fn: () => void, ms: number) => {
-    timersRef.current.push(setTimeout(fn, ms));
-  };
 
   const retryScan = () => {
     setResult(null);
-    later(() => {
+    // Aynı karenin hemen yeniden okunmaması için kilit kısa bir süre sonra açılır
+    if (unlockTimerRef.current) clearTimeout(unlockTimerRef.current);
+    unlockTimerRef.current = setTimeout(() => {
       isScanningLocked.current = false;
     }, RETRY_UNLOCK_MS);
+  };
+
+  // Ana sayfaya dönüş: kamera ve kalan durum, sayfa gizlenirken çalışan
+  // temizleme fonksiyonlarında (yukarıdaki ve kamera effect'indeki) kapatılır.
+  const goHome = () => {
+    setResult(null);
+    router.replace("/");
   };
 
   const handleBarcodeScanned = useCallback(
@@ -132,10 +154,8 @@ export default function ScannerPage() {
         const { type, gate, createdAt } = response.data;
         vibrate([40, 60, 40]);
         setLastType(type);
+        // Otomatik yönlendirme yok: sonuç, personel "Tamam"a basana kadar kalır
         setResult({ success: true, type, gate, time: formatTime(createdAt) });
-        timersRef.current.push(
-          setTimeout(() => router.replace("/"), SUCCESS_REDIRECT_MS),
-        );
         return;
       }
 
@@ -152,7 +172,7 @@ export default function ScannerPage() {
         relogin: requiresRelogin(response),
       });
     },
-    [employeeCode, setLastType, router],
+    [employeeCode, setLastType],
   );
 
   // Kamera effect'i her render'da yeniden kurulmasın diye güncel callback
@@ -327,7 +347,7 @@ export default function ScannerPage() {
           <button
             type="button"
             className="scanner-btn scanner-btn-ghost"
-            onClick={() => router.replace("/")}
+            onClick={goHome}
           >
             Ana Sayfaya Dön
           </button>
@@ -339,7 +359,7 @@ export default function ScannerPage() {
             type="button"
             className="top-back-button"
             aria-label="Ana sayfaya dön"
-            onClick={() => router.replace("/")}
+            onClick={goHome}
           >
             <ArrowLeft size={24} color="#FFFFFF" />
           </button>
@@ -396,7 +416,7 @@ export default function ScannerPage() {
           <button
             type="button"
             className="scanner-btn result-btn"
-            onClick={() => router.replace("/")}
+            onClick={goHome}
           >
             Tamam
           </button>
@@ -431,7 +451,7 @@ export default function ScannerPage() {
               <button
                 type="button"
                 className="scanner-btn scanner-btn-ghost"
-                onClick={() => router.replace("/")}
+                onClick={goHome}
               >
                 Ana Sayfaya Dön
               </button>

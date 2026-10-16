@@ -8,6 +8,12 @@ import {
   getLastLog,
   nextLogType,
 } from '../../../lib/attendance';
+import {
+  evaluateCheckIn,
+  evaluateCheckOut,
+  isBreakReturn,
+  violationReason,
+} from '../../../lib/shiftTiming';
 
 // Şifreli karekod metni ~90 karakterdir
 const MAX_QR_LENGTH = 512;
@@ -74,9 +80,59 @@ export async function POST(request: Request) {
          RETURNING id, created_at`,
         [employee.employee_code, factoryId, gateId, deviceKey, type]
       );
+      const record = inserted.rows[0];
+
+      // Vardiya saat kontrolü: geç giriş / erken çıkış ihlal olarak kaydedilir
+      const timing =
+        type === 'IN'
+          ? evaluateCheckIn(record.created_at, employee.shift, last)
+          : evaluateCheckOut(
+              record.created_at,
+              employee.shift,
+              last?.type === 'IN' ? last.createdAt : null
+            );
+      const reason = violationReason(timing);
+      // Aynı vardiyada çıkıp geri döndü: o çıkış moladır, erken çıkış kaydı silinir
+      const breakReturn =
+        type === 'IN' && last !== null &&
+        isBreakReturn(record.created_at, employee.shift, last);
+
+      if ((timing && reason) || breakReturn) {
+        // Ayrı bir savepoint: ihlal tablosu henüz oluşturulmamışsa (migration
+        // çalıştırılmadıysa) giriş/çıkış kaydı yine de tamamlanır.
+        await client.query('SAVEPOINT shift_violation');
+        try {
+          if (breakReturn && last) {
+            await client.query(
+              `DELETE FROM shift_violations
+                WHERE attendance_log_id = $1 AND reason = 'erken çıktı'`,
+              [last.id]
+            );
+          }
+          if (timing && reason) {
+            await client.query(
+              `INSERT INTO shift_violations
+                 (employee_code, full_name, duration_minutes, reason, action_date, attendance_log_id)
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [
+                employee.employee_code,
+                employee.full_name,
+                timing.minutes,
+                reason,
+                timing.shiftDate,
+                record.id,
+              ]
+            );
+          }
+          await client.query('RELEASE SAVEPOINT shift_violation');
+        } catch (violationError) {
+          await client.query('ROLLBACK TO SAVEPOINT shift_violation');
+          console.error('[verify] Vardiya ihlali kaydedilemedi:', violationError);
+        }
+      }
+
       await client.query('COMMIT');
 
-      const record = inserted.rows[0];
       console.log(
         `[Kayıt Başarılı] ID: ${record.id} | ${type} | ${employee.employee_code} | Kapı: ${gateId}`
       );
@@ -87,6 +143,7 @@ export async function POST(request: Request) {
         message: `${type === 'IN' ? 'Giriş' : 'Çıkış'} başarıyla onaylandı ve kaydedildi.`,
         gate: gateId,
         createdAt: record.created_at.toISOString(),
+        timing: timing ? { status: timing.status, minutes: timing.minutes } : null,
       });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});

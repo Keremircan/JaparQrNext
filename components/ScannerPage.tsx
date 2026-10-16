@@ -29,6 +29,7 @@ import type {
 import { apiPost, isDeviceFailure, requiresRelogin } from "../lib/api";
 import { formatTime } from "../lib/datetime";
 import { vibrate } from "../lib/ui";
+import { timingLabel, type Timing } from "./TimingBadge";
 import "../styles/ScannerPage.css";
 
 // Analiz için kareden kesilen orta bölgenin azami kenarı (px). Kamera
@@ -75,10 +76,17 @@ type VerifyResponse = {
   message: string;
   gate: string;
   createdAt: string;
+  timing: Timing | null;
 };
 
 type ScanResult =
-  | { success: true; type: "IN" | "OUT"; gate: string; time: string }
+  | {
+      success: true;
+      type: "IN" | "OUT";
+      gate: string;
+      time: string;
+      timing: Timing | null;
+    }
   | { success: false; title: string; message: string; relogin: boolean };
 
 export default function ScannerPage() {
@@ -151,11 +159,17 @@ export default function ScannerPage() {
       setLoading(false);
 
       if (response.ok) {
-        const { type, gate, createdAt } = response.data;
+        const { type, gate, createdAt, timing } = response.data;
         vibrate([40, 60, 40]);
         setLastType(type);
         // Otomatik yönlendirme yok: sonuç, personel "Tamam"a basana kadar kalır
-        setResult({ success: true, type, gate, time: formatTime(createdAt) });
+        setResult({
+          success: true,
+          type,
+          gate,
+          time: formatTime(createdAt),
+          timing: timing ?? null,
+        });
         return;
       }
 
@@ -413,6 +427,9 @@ export default function ScannerPage() {
           </h2>
           <p className="result-time">{result.time}</p>
           <p className="result-message">Kapı: {result.gate}</p>
+          {result.timing && result.timing.status !== "on_time" && (
+            <p className="result-timing">{timingLabel(result.timing)}</p>
+          )}
           <button
             type="button"
             className="scanner-btn result-btn"

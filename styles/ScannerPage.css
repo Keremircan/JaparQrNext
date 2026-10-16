@@ -301,6 +301,16 @@
   white-space: pre-line;
 }
 
+/* Vardiyaya göre sapma (geç giriş / erken çıkış / erken geliş) */
+.result-timing {
+  margin: 14px 0 0 0;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 18px;
+  font-weight: 700;
+}
+
 .result-btn {
   margin-top: 32px;
   background-color: #ffffff;

@@ -3,6 +3,7 @@ import { serverErrorResponse } from '../../../lib/apiError';
 import { pool } from '../../../lib/db';
 import { authenticateRequest, failureResponse } from '../../../lib/deviceBinding';
 import { getLastLog, getTodayLogs } from '../../../lib/attendance';
+import { annotateLogs } from '../../../lib/shiftTiming';
 
 export async function POST(request: Request) {
   try {
@@ -10,14 +11,15 @@ export async function POST(request: Request) {
     if (!auth.ok) return failureResponse(auth);
 
     const employeeCode = auth.employee.employee_code;
-    const [logList, last] = await Promise.all([
+    const [logs, last] = await Promise.all([
       getTodayLogs(pool, employeeCode),
       getLastLog(pool, employeeCode),
     ]);
 
     return NextResponse.json({
       success: true,
-      logList,
+      // Her harekete vardiya etiketi (zamanında / geç / erken) eklenir
+      logList: annotateLogs(logs, auth.employee.shift),
       // Vardiya durumu: /api/verify ile aynı kuraldan türetilir
       lastType: last?.type ?? null,
     });

@@ -16,6 +16,7 @@ import { useSession } from '../context/useSession';
 import { apiPost, requiresRelogin } from '../lib/api';
 import { formatDate, formatLongDate, formatTime } from '../lib/datetime';
 import { getFirstName, getInitials, vibrate } from '../lib/ui';
+import TimingBadge, { type Timing } from './TimingBadge';
 import '../styles/HomePage.css';
 
 type AttendanceLog = {
@@ -23,6 +24,8 @@ type AttendanceLog = {
   gate: string;
   type: 'IN' | 'OUT';
   createdAt: string; // UTC ISO
+  /** Vardiyaya göre durum; vardiya tanımsız veya hareket vardiya dışıysa null */
+  timing?: Timing | null;
 };
 
 type LogsResponse = {
@@ -278,8 +281,11 @@ export default function HomePage() {
                   )}
                 </div>
                 <div className="log-copy">
-                  <span className="log-title">
-                    {item.type === 'IN' ? 'Giriş' : 'Çıkış'}
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="log-title">
+                      {item.type === 'IN' ? 'Giriş' : 'Çıkış'}
+                    </span>
+                    <TimingBadge timing={item.timing} />
                   </span>
                   <span className="log-meta">
                     {item.gate}

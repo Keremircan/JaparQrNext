@@ -25,12 +25,14 @@ type Queryable = {
 };
 
 type LastLogRow = {
+  id: string;
   log_type: LogType;
   created_at: Date;
   age_seconds: string;
 };
 
 export type LastLog = {
+  id: number;
   type: LogType;
   createdAt: Date;
   ageSeconds: number;
@@ -42,7 +44,7 @@ export async function getLastLog(
   employeeCode: string
 ): Promise<LastLog | null> {
   const result = await db.query<LastLogRow>(
-    `SELECT log_type, created_at,
+    `SELECT id, log_type, created_at,
             EXTRACT(EPOCH FROM (now() - created_at)) AS age_seconds
        FROM attendance_logs
       WHERE employee_code = $1
@@ -55,6 +57,7 @@ export async function getLastLog(
   const row = result.rows[0];
   if (!row) return null;
   return {
+    id: Number(row.id),
     type: row.log_type,
     createdAt: row.created_at,
     ageSeconds: Number(row.age_seconds),

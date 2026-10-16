@@ -1,37 +1,25 @@
-import CryptoJS from 'crypto-js';
 import * as OTPAuth from 'otpauth';
+import { decryptQrPayload, loadQrSecrets } from './qrToken';
 
-// Herkese açık örnek değerler (otpauth belgelerindeki örnek sır ve "1234…").
-// Bunlarla üretilen karekodu herkes üretebilir; canlıda kullanılmamalıdır.
-const SAMPLE_SHARED_SECRET = 'JBSWY3DPEHPK3PXP';
-const SAMPLE_AES_KEY = '12345678901234567890123456789012';
-
-const SHARED_SECRET_BASE32 = process.env.SHARED_SECRET_BASE32 || '';
-const AES_SECRET_KEY = process.env.AES_SECRET_KEY || '';
-
-const isConfigured = Boolean(SHARED_SECRET_BASE32 && AES_SECRET_KEY);
-
-if (!isConfigured) {
+// Sırlar açılışta bir kez doğrulanır. Eksik, zayıf veya herkese açık örnek
+// değerlerle karekod doğrulaması hiç yapılmaz (fail closed).
+const loaded = loadQrSecrets();
+if (!loaded.ok) {
   console.error(
-    '[QR] SHARED_SECRET_BASE32 / AES_SECRET_KEY tanımlı değil; karekod doğrulaması devre dışı.'
-  );
-} else if (
-  SHARED_SECRET_BASE32 === SAMPLE_SHARED_SECRET ||
-  AES_SECRET_KEY === SAMPLE_AES_KEY
-) {
-  console.error(
-    '[QR] GÜVENLİK UYARISI: SHARED_SECRET_BASE32 / AES_SECRET_KEY herkese açık örnek değerlerde. Canlıya çıkmadan önce değiştirin.'
+    `[QR] Karekod doğrulaması devre dışı: ${loaded.problems.join('; ')}.`
   );
 }
+const secrets = loaded.ok ? loaded.secrets : null;
 
-const totp = isConfigured
+// TOTP parametreleri kiosk (japar-kiosk/app/api/qr/route.ts) ile birebir aynı olmalı
+const totp = secrets
   ? new OTPAuth.TOTP({
       issuer: 'FactorySystem',
       label: 'Gate-01',
       algorithm: 'SHA256',
       digits: 6,
       period: 10,
-      secret: OTPAuth.Secret.fromBase32(SHARED_SECRET_BASE32),
+      secret: OTPAuth.Secret.fromBase32(secrets.sharedSecretBase32),
     })
   : null;
 
@@ -43,7 +31,7 @@ const isShortText = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= 50;
 
 export function verifyQRData(qrString: string): QrVerification {
-  if (!totp) {
+  if (!totp || !secrets) {
     return {
       success: false,
       reason: 'Sunucu yapılandırması eksik. Lütfen yöneticinize bildirin.',
@@ -51,8 +39,8 @@ export function verifyQRData(qrString: string): QrVerification {
   }
 
   try {
-    const bytes = CryptoJS.AES.decrypt(qrString, AES_SECRET_KEY);
-    const decryptedText = bytes.toString(CryptoJS.enc.Utf8);
+    // Kimlik doğrulamalı şifre çözme: değiştirilmiş veya sahte karekod null döner
+    const decryptedText = decryptQrPayload(qrString, secrets);
 
     if (!decryptedText) {
       return {
@@ -65,7 +53,7 @@ export function verifyQRData(qrString: string): QrVerification {
     const { t, f, d } = (payload ?? {}) as Record<string, unknown>;
 
     // factory_id / gate_id kolonları varchar(50)
-    if (typeof t !== 'string' || !isShortText(f) || !isShortText(d)) {
+    if (typeof t !== 'string' || !/^\d{6}$/.test(t) || !isShortText(f) || !isShortText(d)) {
       return {
         success: false,
         reason: 'Geçersiz karekod. Lütfen kapıdaki ekranı okutun.',
